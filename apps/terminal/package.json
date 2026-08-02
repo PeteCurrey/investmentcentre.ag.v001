@@ -9,6 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@meridian/adapters": "*",
+    "@meridian/automation": "*",
     "@meridian/core": "*",
     "@meridian/registry": "*",
     "@meridian/ui": "*",
