@@ -1,8 +1,11 @@
+'use client';
+
 import React from 'react';
-import { AutomationEngine } from '@meridian/automation';
 
 export default function AutomationPage() {
-  const engine = new AutomationEngine(false);
+  const tier4Enabled = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
+  const oandaEnv = process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT || 'practice';
+  const oandaAccount = process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID || '—';
 
   const rules = [
     {
@@ -57,16 +60,35 @@ export default function AutomationPage() {
           Automation Rule Registry
         </h1>
         <p style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>
-          Configured rules across Watch, Research, Prepare, and Execute tiers. Tier 4 Execution is config-disabled by default.
+          Configured rules across Watch, Research, Prepare, and Execute tiers.
+          {tier4Enabled ? ' Tier 4 live execution is ACTIVE via Oanda.' : ' Tier 4 Execution is config-disabled.'}
         </p>
       </div>
 
-      <div style={{ border: '1px solid #E4E4DF', padding: '16px', backgroundColor: '#F7F7F5', fontFamily: '"DM Mono", monospace', fontSize: '12px' }}>
-        <strong>GLOBAL SYSTEM STATE:</strong> TIER 4 (EXECUTE) IS currently {process.env.TIER_4_ENABLED === 'true' ? (
-          <span style={{ color: '#166534', fontWeight: 700, backgroundColor: '#DCFCE7', padding: '2px 6px', border: '1px solid #86EFAC' }}>ENABLED</span>
-        ) : (
-          <span style={{ color: '#DC2626', fontWeight: 700 }}>CONFIG-DISABLED</span>
-        )}.
+      <div style={{
+        border: `2px solid ${tier4Enabled ? '#86EFAC' : '#FCA5A5'}`,
+        padding: '16px',
+        backgroundColor: tier4Enabled ? '#DCFCE7' : '#FEE2E2',
+        fontFamily: '"DM Mono", monospace',
+        fontSize: '12px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div>
+          <strong>GLOBAL SYSTEM STATE:</strong> TIER 4 (EXECUTE) IS currently{' '}
+          {tier4Enabled ? (
+            <span style={{ color: '#166534', fontWeight: 700, backgroundColor: '#FFFFFF', padding: '2px 8px', border: '1px solid #86EFAC' }}>⚡ LIVE — EXECUTE MODE</span>
+          ) : (
+            <span style={{ color: '#991B1B', fontWeight: 700 }}>CONFIG-DISABLED — OBSERVE MODE</span>
+          )}
+        </div>
+        {tier4Enabled && (
+          <div style={{ textAlign: 'right', fontSize: '11px', color: '#166534' }}>
+            <div>BROKER: Oanda v20 REST API</div>
+            <div>ENV: {oandaEnv.toUpperCase()} | ACCOUNT: {oandaAccount}</div>
+          </div>
+        )}
       </div>
 
       <div style={{ border: '1px solid #E4E4DF' }}>

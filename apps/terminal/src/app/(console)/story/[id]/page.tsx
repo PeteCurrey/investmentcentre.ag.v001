@@ -103,12 +103,66 @@ export default function StoryPage() {
 
       {/* Executive Summary */}
       <div style={{ backgroundColor: '#F7F7F5', border: '1px solid #E4E4DF', padding: '16px 20px' }}>
-        <div style={{ fontSize: '10px', fontWeight: 700, fontFamily: '"DM Mono", monospace', color: '#6B7280', marginBottom: '8px', letterSpacing: '1px' }}>
+        <div style={{ fontSize: '10px', fontWeight: 600, fontFamily: '"DM Mono", monospace', color: '#6B7280', marginBottom: '8px', letterSpacing: '1px' }}>
           EXECUTIVE SUMMARY
         </div>
-        <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#14181B', margin: 0, fontStyle: 'italic' }}>
+        <p style={{ fontSize: '13px', lineHeight: '1.6', color: '#14181B', margin: 0, fontStyle: 'italic' }}>
           {story.summary}
         </p>
+      </div>
+
+      {/* Audio Executive Briefing Player */}
+      <div style={{
+        border: '1px solid #1C3A5E',
+        backgroundColor: '#0F172A',
+        color: '#F8FAFC',
+        padding: '14px 20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '20px',
+        fontFamily: '"DM Mono", monospace'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <button style={{
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
+            backgroundColor: '#C8F135',
+            color: '#090D16',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 600
+          }}>
+            ▶
+          </button>
+          <div>
+            <div style={{ fontSize: '11px', color: '#C8F135', letterSpacing: '0.5px' }}>
+              AUDIO EXECUTIVE SYNTHESIS // AI COUNCIL BRIEF
+            </div>
+            <div style={{ fontSize: '10px', color: '#94A3B8' }}>
+              Synthesized by Claude 3.5 & GPT-4o (1m 45s audio)
+            </div>
+          </div>
+        </div>
+
+        {/* Crisp Waveform visualizer */}
+        <div style={{ flex: 1, maxWidth: '280px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+          {[12, 18, 28, 14, 22, 32, 16, 24, 30, 20, 14, 26, 32, 18, 12, 24, 28, 16, 20, 14].map((h, idx) => (
+            <div key={idx} style={{
+              flex: 1,
+              height: `${h}px`,
+              backgroundColor: idx < 7 ? '#C8F135' : '#334155',
+              transition: 'height 0.2s ease'
+            }} />
+          ))}
+        </div>
+
+        <span style={{ fontSize: '10px', color: '#94A3B8' }}>0:38 / 1:45</span>
       </div>
 
       {/* Trader Impact Banner */}

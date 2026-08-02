@@ -41,15 +41,24 @@ export default function ConsoleLayout({
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span style={{ fontWeight: 700, letterSpacing: '1px' }}>MERIDIAN</span>
           <span style={{ color: '#E4E4DF' }}>|</span>
-          <span style={{ color: '#C8F135', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '6px', height: '6px', backgroundColor: '#C8F135', display: 'inline-block' }}></span>
-            SYSTEM ACTIVE [OBSERVE MODE]
-          </span>
+          {process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true' ? (
+            <span style={{ color: '#C8F135', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+              <span style={{ width: '8px', height: '8px', backgroundColor: '#C8F135', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 8px #C8F135' }}></span>
+              SYSTEM ACTIVE [EXECUTE MODE]
+            </span>
+          ) : (
+            <span style={{ color: '#9CA3AF', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '6px', height: '6px', backgroundColor: '#9CA3AF', display: 'inline-block' }}></span>
+              SYSTEM ACTIVE [OBSERVE MODE]
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span>COUNCIL: 3 MODELS ONLINE</span>
           <span>STALENESS: OK</span>
+          <a href="/landing" style={{ color: '#E4E4DF', textDecoration: 'none', fontSize: '11px' }}>PRODUCT OVERVIEW</a>
+          <a href="/architecture" style={{ color: '#E4E4DF', textDecoration: 'none', fontSize: '11px' }}>SPECIFICATION</a>
 
           {/* Mandatory Kill Switch Control */}
           <button
@@ -59,9 +68,10 @@ export default function ConsoleLayout({
               color: '#FFFFFF',
               border: '1px solid #991B1B',
               padding: '4px 12px',
-              fontWeight: 700,
+              fontWeight: 600,
               fontSize: '11px',
-              letterSpacing: '0.5px'
+              letterSpacing: '0.5px',
+              cursor: 'pointer'
             }}
             onClick={() => { console.log('MERIDIAN HALT TRIGGERED. All order routing suspended.'); }}
           >
@@ -69,6 +79,35 @@ export default function ConsoleLayout({
           </button>
         </div>
       </header>
+
+      {/* Multi-Asset Ticker Tape Subheader */}
+      <div style={{
+        height: '28px',
+        backgroundColor: '#0F172A',
+        borderBottom: '1px solid #1E293B',
+        color: '#94A3B8',
+        fontFamily: '"DM Mono", monospace',
+        fontSize: '10px',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 16px',
+        gap: '24px',
+        overflowX: 'auto',
+        whiteSpace: 'nowrap'
+      }}>
+        <span style={{ color: '#C8F135', letterSpacing: '1px' }}>LIVE TICKS //</span>
+        <span>GBP/USD <strong style={{ color: '#4ADE80', fontWeight: 500 }}>1.3145 (+0.42%)</strong></span>
+        <span style={{ color: '#334155' }}>|</span>
+        <span>WTI CRUDE <strong style={{ color: '#4ADE80', fontWeight: 500 }}>$78.40 (+1.85%)</strong></span>
+        <span style={{ color: '#334155' }}>|</span>
+        <span>SPX INDEX <strong style={{ color: '#4ADE80', fontWeight: 500 }}>5,520.40 (+0.28%)</strong></span>
+        <span style={{ color: '#334155' }}>|</span>
+        <span>EUR/USD <strong style={{ color: '#F87171', fontWeight: 500 }}>1.0920 (-0.15%)</strong></span>
+        <span style={{ color: '#334155' }}>|</span>
+        <span>US 10Y TREASURY <strong style={{ color: '#F87171', fontWeight: 500 }}>4.18% (-2bps)</strong></span>
+        <span style={{ color: '#334155' }}>|</span>
+        <span>FED FUNDS EFFECTIVE <strong style={{ color: '#CBD5E1', fontWeight: 500 }}>5.33%</strong></span>
+      </div>
 
       {/* Main Console Body */}
       <div style={{ display: 'flex', flex: 1 }}>

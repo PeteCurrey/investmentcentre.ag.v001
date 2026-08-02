@@ -1,10 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { Value } from '../../components/Value';
 
 export default function BriefPage() {
+  const [activeTab, setActiveTab] = useState<'ALL' | 'WORLD' | 'MARKETS' | 'UNDERCURRENT'>('ALL');
+
   const salienceRankedDeltas = [
     {
       id: 'sal_1',
@@ -47,6 +49,10 @@ export default function BriefPage() {
     }
   ];
 
+  const filteredDeltas = activeTab === 'ALL'
+    ? salienceRankedDeltas
+    : salienceRankedDeltas.filter(d => d.pillar === activeTab);
+
   const biasConfig = {
     BULLISH: { bg: '#DCFCE7', color: '#166534', border: '#86EFAC' },
     BEARISH: { bg: '#FEE2E2', color: '#991B1B', border: '#FCA5A5' },
@@ -54,34 +60,64 @@ export default function BriefPage() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', fontFamily: '"DM Mono", monospace' }}>
       {/* Header */}
-      <div style={{ borderBottom: '1px solid #E4E4DF', paddingBottom: '16px' }}>
-        <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace', marginBottom: '4px' }}>
-          DAILY EXECUTIVE SYNTHESIS — 02 AUGUST 2026
+      <div style={{ borderBottom: '1px solid #E4E4DF', paddingBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div>
+          <div style={{ fontSize: '10px', color: '#6B7280', marginBottom: '4px', letterSpacing: '1px' }}>
+            DAILY EXECUTIVE SYNTHESIS — 02 AUGUST 2026
+          </div>
+          <h1 style={{ fontSize: '22px', fontWeight: 500, color: '#14181B', letterSpacing: '-0.5px', margin: 0 }}>
+            The Brief
+          </h1>
+          <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px', marginBottom: 0 }}>
+            Deterministic explicit-weight salience ranking & position impact assessment.
+          </p>
         </div>
-        <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#14181B', letterSpacing: '-0.5px' }}>
-          The Brief
-        </h1>
-        <p style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>
-          Ranked cross-asset intelligence, deterministic explicit-weight salience ranking, and position impact assessment. Click any story for full analysis.
-        </p>
+
+        <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
+          {(['ALL', 'WORLD', 'MARKETS', 'UNDERCURRENT'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                padding: '4px 12px',
+                backgroundColor: activeTab === tab ? '#1C3A5E' : '#F7F7F5',
+                color: activeTab === tab ? '#FFFFFF' : '#6B7280',
+                border: '1px solid #E4E4DF',
+                cursor: 'pointer',
+                fontFamily: '"DM Mono", monospace',
+                fontSize: '10px',
+                letterSpacing: '0.5px'
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* KPI Summary Grid */}
+      {/* KPI Summary Grid with SVG Sparklines */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
         {[
-          { label: 'MONITORED FEEDS', val: '18 Active', source: 'registry', age: 0 },
-          { label: 'DELTAS DETECTED (24H)', val: '142', source: 'delta_engine', age: 12 },
-          { label: 'COUNCIL CONSENSUS', val: '92% High', source: 'ai_council', age: 45 },
-          { label: 'GBP/USD SPOT', val: '1.3145', unit: 'GBP/USD', source: 'twelve_data', age: 5 },
+          { label: 'MONITORED FEEDS', val: '18 Active', source: 'registry', age: 0, path: 'M0 20 L20 18 L40 22 L60 12 L80 15 L100 8' },
+          { label: 'DELTAS DETECTED (24H)', val: '142', source: 'delta_engine', age: 12, path: 'M0 25 L20 22 L40 18 L60 10 L80 14 L100 5' },
+          { label: 'COUNCIL CONSENSUS', val: '92% High', source: 'ai_council', age: 45, path: 'M0 15 L20 15 L40 12 L60 8 L80 10 L100 6' },
+          { label: 'GBP/USD SPOT', val: '1.3145', unit: 'GBP/USD', source: 'twelve_data', age: 5, path: 'M0 22 L20 25 L40 20 L60 15 L80 18 L100 10' },
         ].map((kpi, idx) => (
-          <div key={idx} style={{ border: '1px solid #E4E4DF', padding: '16px', backgroundColor: '#F7F7F5' }}>
-            <div style={{ fontSize: '10px', color: '#6B7280', fontFamily: '"DM Mono", monospace', fontWeight: 700 }}>
+          <div key={idx} style={{ border: '1px solid #E4E4DF', padding: '14px 16px', backgroundColor: '#F7F7F5', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ fontSize: '10px', color: '#6B7280', fontWeight: 600, letterSpacing: '0.5px' }}>
               {kpi.label}
             </div>
-            <div style={{ marginTop: '8px', fontSize: '18px' }}>
+            <div style={{ marginTop: '6px', fontSize: '16px', fontWeight: 500, color: '#14181B' }}>
               <Value provenance={{ value: kpi.val, unit: kpi.unit, source: kpi.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: kpi.age }} />
+            </div>
+
+            {/* Sparkline Graphic */}
+            <div style={{ marginTop: '10px', height: '24px', width: '100%' }}>
+              <svg width="100%" height="24" viewBox="0 0 100 30" preserveAspectRatio="none">
+                <path d={kpi.path} fill="none" stroke="#1C3A5E" strokeWidth="1.5" opacity="0.6" />
+              </svg>
             </div>
           </div>
         ))}
@@ -89,12 +125,17 @@ export default function BriefPage() {
 
       {/* Salience Ranked Priority Board */}
       <div style={{ border: '1px solid #E4E4DF', padding: '20px', backgroundColor: '#FFFFFF' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 700, fontFamily: '"DM Mono", monospace', color: '#1C3A5E', borderBottom: '1px solid #E4E4DF', paddingBottom: '8px', marginBottom: '16px' }}>
-          [SALIENCE RANKING] HIGHEST PRIORITY OPPORTUNITIES & DELTAS
-        </h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #E4E4DF', paddingBottom: '10px', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '12px', fontWeight: 600, color: '#1C3A5E', margin: 0, letterSpacing: '0.5px' }}>
+            [SALIENCE RANKING] HIGHEST PRIORITY OPPORTUNITIES & DELTAS
+          </h2>
+          <span style={{ fontSize: '10px', color: '#6B7280' }}>
+            SHOWING {filteredDeltas.length} OF {salienceRankedDeltas.length} ITEMS
+          </span>
+        </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {salienceRankedDeltas.map((item) => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {filteredDeltas.map((item) => {
             const bias = biasConfig[item.bias];
             return (
               <Link
@@ -105,73 +146,83 @@ export default function BriefPage() {
                 <div style={{
                   border: `1px solid ${bias.border}`,
                   padding: '16px',
-                  backgroundColor: '#F7F7F5',
+                  backgroundColor: '#FFFFFF',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'flex-start',
                   cursor: 'pointer',
-                  transition: 'background-color 0.15s ease, border-color 0.15s ease',
+                  transition: 'background-color 0.15s ease',
                 }}
                   onMouseEnter={e => {
-                    (e.currentTarget as any).style.backgroundColor = bias.bg;
-                    (e.currentTarget as any).style.borderColor = bias.color;
+                    (e.currentTarget as any).style.backgroundColor = '#F7F7F5';
                   }}
                   onMouseLeave={e => {
-                    (e.currentTarget as any).style.backgroundColor = '#F7F7F5';
-                    (e.currentTarget as any).style.borderColor = bias.border;
+                    (e.currentTarget as any).style.backgroundColor = '#FFFFFF';
                   }}
                 >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      {/* Crisp Salience Score Tag */}
                       <span style={{
                         padding: '2px 8px',
                         backgroundColor: item.score >= 80 ? '#FEE2E2' : '#FEF3C7',
                         color: item.score >= 80 ? '#991B1B' : '#92400E',
-                        fontFamily: '"DM Mono", monospace',
-                        fontWeight: 700,
-                        fontSize: '11px',
+                        fontSize: '10px',
+                        fontWeight: 600,
                         border: '1px solid #E4E4DF',
                       }}>
-                        SALIENCE: {item.score}/100
+                        SALIENCE {item.score}/100
                       </span>
+                      
                       <span style={{
                         padding: '2px 8px',
                         backgroundColor: bias.bg,
                         color: bias.color,
-                        fontFamily: '"DM Mono", monospace',
-                        fontWeight: 700,
                         fontSize: '10px',
+                        fontWeight: 600,
                         border: `1px solid ${bias.border}`,
                       }}>
                         {item.bias}
                       </span>
+
                       <span style={{
                         padding: '2px 6px',
                         backgroundColor: '#1C3A5E',
                         color: '#FFFFFF',
-                        fontFamily: '"DM Mono", monospace',
                         fontSize: '9px',
-                        fontWeight: 700,
+                        fontWeight: 600,
                       }}>
                         {item.pillar}
                       </span>
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#14181B' }}>
+
+                      <span style={{ fontSize: '13px', fontWeight: 500, color: '#14181B' }}>
                         {item.title}
                       </span>
                     </div>
-                    <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace' }}>
-                      <strong>WEIGHT BREAKDOWN:</strong> {item.breakdown}
+
+                    {/* Salience Meter Bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ flex: 1, maxWidth: '240px', height: '4px', backgroundColor: '#E4E4DF', overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${item.score}%`,
+                          height: '100%',
+                          backgroundColor: item.score >= 80 ? '#DC2626' : '#D97706'
+                        }} />
+                      </div>
+                      <span style={{ fontSize: '10px', color: '#6B7280' }}>
+                        WEIGHT: {item.breakdown}
+                      </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
                       {item.instruments.map(t => (
                         <span key={t} style={{
                           padding: '1px 6px',
-                          backgroundColor: '#FFFFFF',
-                          border: `1px solid ${bias.border}`,
-                          fontFamily: '"DM Mono", monospace',
+                          backgroundColor: '#F7F7F5',
+                          border: '1px solid #E4E4DF',
                           fontSize: '10px',
-                          fontWeight: 700,
-                          color: bias.color,
+                          fontWeight: 500,
+                          color: '#1C3A5E',
                         }}>
                           {t}
                         </span>
@@ -179,15 +230,14 @@ export default function BriefPage() {
                     </div>
                   </div>
 
-                  <div style={{ textAlign: 'right', marginLeft: '16px' }}>
+                  <div style={{ textAlign: 'right', marginLeft: '24px' }}>
                     <Value provenance={{ value: item.val, source: item.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: item.age }} />
                     <div style={{
                       fontSize: '10px',
-                      fontFamily: '"DM Mono", monospace',
-                      color: '#6B7280',
-                      marginTop: '6px',
+                      color: '#1C3A5E',
+                      marginTop: '8px',
                     }}>
-                      CLICK FOR FULL ANALYSIS →
+                      VIEW NARRATIVE →
                     </div>
                   </div>
                 </div>
