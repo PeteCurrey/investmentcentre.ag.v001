@@ -123,7 +123,40 @@ export default function ConsoleLayout({
           justifyContent: 'space-between'
         }}>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <div style={{ padding: '4px 16px 8px 16px', fontSize: '10px', color: '#6B7280', fontWeight: 700, fontFamily: '"DM Mono", monospace' }}>
+            <div style={{ padding: '4px 16px 6px 16px', fontSize: '10px', color: '#6B7280', fontWeight: 700, fontFamily: '"DM Mono", monospace' }}>
+              DOCUMENTATION & SPEC
+            </div>
+            <a
+              href="/landing"
+              style={{
+                padding: '6px 16px',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: '#1C3A5E',
+                backgroundColor: pathname === '/landing' ? '#FFFFFF' : 'transparent',
+                display: 'block',
+                textDecoration: 'none'
+              }}
+            >
+              Product Overview →
+            </a>
+            <a
+              href="/architecture"
+              style={{
+                padding: '6px 16px',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: '#6B7280',
+                backgroundColor: pathname === '/architecture' ? '#FFFFFF' : 'transparent',
+                display: 'block',
+                textDecoration: 'none',
+                marginBottom: '8px'
+              }}
+            >
+              System Specification
+            </a>
+
+            <div style={{ padding: '4px 16px 6px 16px', fontSize: '10px', color: '#6B7280', fontWeight: 700, fontFamily: '"DM Mono", monospace', borderTop: '1px solid #E4E4DF', paddingTop: '10px' }}>
               CORE SURFACES
             </div>
             {NAV_ITEMS.map((item) => {
