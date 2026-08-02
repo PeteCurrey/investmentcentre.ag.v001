@@ -4,8 +4,10 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow login page, API health route, and assets to bypass auth check
+  // Allow public marketing pages, login page, API health route, and assets to bypass auth check
   if (
+    pathname === '/landing' ||
+    pathname === '/architecture' ||
     pathname === '/login' ||
     pathname.startsWith('/api/health') ||
     pathname.startsWith('/_next') ||
@@ -18,9 +20,9 @@ export function middleware(request: NextRequest) {
   const session = request.cookies.get('console_session');
 
   if (!session || session.value !== 'active_session') {
-    // Redirect unauthenticated requests to the login page
-    const loginUrl = new URL('/login', request.url);
-    return NextResponse.redirect(loginUrl);
+    // Redirect unauthenticated requests to the public landing page
+    const landingUrl = new URL('/landing', request.url);
+    return NextResponse.redirect(landingUrl);
   }
 
   return NextResponse.next();

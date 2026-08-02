@@ -113,7 +113,7 @@ export default async function LoginPage({
               color: '#FFFFFF',
               border: 'none',
               padding: '10px',
-              fontWeight: 700,
+              fontWeight: 600,
               fontSize: '12px',
               fontFamily: '"DM Mono", monospace',
               cursor: 'pointer',
@@ -124,6 +124,12 @@ export default async function LoginPage({
             VERIFY KEY & DECRYPT
           </button>
         </form>
+
+        <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '11px', fontFamily: '"DM Mono", monospace' }}>
+          <a href="/landing" style={{ color: '#6B7280', textDecoration: 'none' }}>
+            ← VIEW PUBLIC PRODUCT OVERVIEW
+          </a>
+        </div>
       </div>
     </div>
   );
