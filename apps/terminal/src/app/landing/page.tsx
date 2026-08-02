@@ -34,6 +34,9 @@ export default function PublicLandingPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '24px', fontSize: '11px' }}>
+          <Link href="/trade" style={{ color: '#C8F135', textDecoration: 'none', fontWeight: 600 }}>
+            TRADE DESK
+          </Link>
           <Link href="/architecture" style={{ color: '#94A3B8', textDecoration: 'none' }}>
             ARCHITECTURE
           </Link>
