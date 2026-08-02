@@ -3,6 +3,11 @@
   "compilerOptions": {
     "outDir": "dist",
     "composite": true,
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "noEmit": true,
     "incremental": true,

@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: 'Undercurrent', href: '/undercurrent' },
   { label: 'Alternatives', href: '/alternatives' },
   { label: 'AI Council', href: '/council' },
+  { label: 'Trade', href: '/trade' },
   { label: 'Automation', href: '/automation' },
   { label: 'System Health', href: '/health' },
 ];

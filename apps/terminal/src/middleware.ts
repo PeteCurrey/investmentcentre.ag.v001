@@ -4,12 +4,12 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public marketing pages, login page, API health route, and assets to bypass auth check
+  // Allow public marketing pages, login page, API routes, and assets to bypass auth check
   if (
     pathname === '/landing' ||
     pathname === '/architecture' ||
     pathname === '/login' ||
-    pathname.startsWith('/api/health') ||
+    pathname.startsWith('/api/') ||
     pathname.startsWith('/_next') ||
     pathname === '/favicon.ico'
   ) {

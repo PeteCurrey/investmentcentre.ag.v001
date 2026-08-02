@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@meridian/adapters": "*",
     "@meridian/automation": "*",
     "@meridian/core": "*",
