@@ -40,7 +40,7 @@ export default function AutomationPage() {
       name: 'Direct Market Execution Seam',
       triggerMetric: 'price.spot.gbp_usd',
       tier: '4_EXECUTE',
-      enabled: false,
+      enabled: true,
       targetInstrument: 'GBP/USD',
       direction: 'BUY',
       stopLossPrice: '1.3000'
@@ -62,7 +62,11 @@ export default function AutomationPage() {
       </div>
 
       <div style={{ border: '1px solid #E4E4DF', padding: '16px', backgroundColor: '#F7F7F5', fontFamily: '"DM Mono", monospace', fontSize: '12px' }}>
-        <strong>GLOBAL SYSTEM STATE:</strong> TIER 4 (EXECUTE) IS currently <span style={{ color: '#DC2626', fontWeight: 700 }}>CONFIG-DISABLED</span>.
+        <strong>GLOBAL SYSTEM STATE:</strong> TIER 4 (EXECUTE) IS currently {process.env.TIER_4_ENABLED === 'true' ? (
+          <span style={{ color: '#166534', fontWeight: 700, backgroundColor: '#DCFCE7', padding: '2px 6px', border: '1px solid #86EFAC' }}>ENABLED</span>
+        ) : (
+          <span style={{ color: '#DC2626', fontWeight: 700 }}>CONFIG-DISABLED</span>
+        )}.
       </div>
 
       <div style={{ border: '1px solid #E4E4DF' }}>

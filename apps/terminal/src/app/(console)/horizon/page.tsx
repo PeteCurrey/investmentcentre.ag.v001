@@ -1,29 +1,31 @@
+'use client';
+
 import React from 'react';
+import Link from 'next/link';
 import { Value } from '../../../components/Value';
 
 export default function HorizonPage() {
   const events = [
     {
-      id: 'evt_1',
+      id: 'hor_1',
       title: 'Acme AI Tech Corp S-1 IPO Registration',
       eventType: 'IPO_REGISTRATION',
       scheduledAt: '2026-08-15',
       daysUntil: 13,
       sourceId: 'sec_edgar',
-      filingRef: 'r2://sec_edgar/0001980000/S1.json',
-      predictionOdds: { source: 'kalshi', ticker: 'KXACMEIPO', prob: '64%' }
+      predictionOdds: { source: 'kalshi', prob: '64%' }
     },
     {
-      id: 'evt_2',
+      id: 'hor_2',
       title: 'FOMC Federal Reserve Interest Rate Decision',
       eventType: 'CENTRAL_BANK_DECISION',
       scheduledAt: '2026-08-20',
       daysUntil: 18,
       sourceId: 'fred',
-      predictionOdds: { source: 'kalshi', ticker: 'KXFEDAUG26', prob: '69%' }
+      predictionOdds: { source: 'kalshi', prob: '69%' }
     },
     {
-      id: 'evt_3',
+      id: 'hor_3',
       title: 'FTSE 100 Quarterly Index Rebalance',
       eventType: 'INDEX_REBALANCE',
       scheduledAt: '2026-09-01',
@@ -57,55 +59,77 @@ export default function HorizonPage() {
           borderBottom: '1px solid #E4E4DF',
           color: '#1C3A5E'
         }}>
-          UPCOMING EVENTS (NEXT 90 DAYS)
+          UPCOMING EVENTS (NEXT 90 DAYS) — CLICK ROW FOR FULL ANALYSIS
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', fontFamily: '"DM Mono", monospace' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #E4E4DF', textAlign: 'left', color: '#6B7280' }}>
-              <th style={{ padding: '10px 16px' }}>COUNTDOWN</th>
-              <th style={{ padding: '10px 16px' }}>EVENT TYPE</th>
-              <th style={{ padding: '10px 16px' }}>TITLE</th>
-              <th style={{ padding: '10px 16px' }}>SCHEDULED DATE</th>
-              <th style={{ padding: '10px 16px' }}>SOURCE & ARCHIVE</th>
-              <th style={{ padding: '10px 16px' }}>PREDICTION ODDS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((evt) => (
-              <tr key={evt.id} style={{ borderBottom: '1px solid #E4E4DF' }}>
-                <td style={{ padding: '12px 16px', fontWeight: 700, color: '#1C3A5E' }}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {events.map((evt, idx) => (
+            <Link
+              key={evt.id}
+              href={`/story/${evt.id}`}
+              style={{ textDecoration: 'none', display: 'block' }}
+            >
+              <div
+                style={{
+                  padding: '16px',
+                  borderBottom: idx < events.length - 1 ? '1px solid #E4E4DF' : 'none',
+                  backgroundColor: '#FFFFFF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s ease',
+                }}
+                onMouseEnter={e => ((e.currentTarget as any).style.backgroundColor = '#F7F7F5')}
+                onMouseLeave={e => ((e.currentTarget as any).style.backgroundColor = '#FFFFFF')}
+              >
+                <div style={{ minWidth: '80px', fontWeight: 700, color: '#1C3A5E', fontFamily: '"DM Mono", monospace', fontSize: '12px' }}>
                   T-{evt.daysUntil} Days
-                </td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{
-                    padding: '2px 6px',
-                    backgroundColor: '#F7F7F5',
-                    border: '1px solid #E4E4DF',
-                    fontSize: '10px',
-                    fontWeight: 700
-                  }}>
-                    {evt.eventType}
-                  </span>
-                </td>
-                <td style={{ padding: '12px 16px', fontWeight: 600 }}>{evt.title}</td>
-                <td style={{ padding: '12px 16px' }}>{evt.scheduledAt}</td>
-                <td style={{ padding: '12px 16px', color: '#6B7280' }}>
-                  {evt.sourceId}
-                </td>
-                <td style={{ padding: '12px 16px' }}>
-                  {evt.predictionOdds ? (
-                    <span style={{ color: '#16A34A', fontWeight: 700 }}>
-                      {evt.predictionOdds.prob} ({evt.predictionOdds.source})
+                </div>
+                
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      padding: '2px 6px',
+                      backgroundColor: '#1C3A5E',
+                      color: '#FFFFFF',
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      fontFamily: '"DM Mono", monospace'
+                    }}>
+                      {evt.eventType}
                     </span>
+                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#14181B' }}>
+                      {evt.title}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace' }}>
+                    Scheduled: {evt.scheduledAt} | Source: {evt.sourceId}
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'right', fontSize: '12px', fontFamily: '"DM Mono", monospace' }}>
+                  {evt.predictionOdds ? (
+                    <div>
+                      <div style={{ color: '#16A34A', fontWeight: 700, fontSize: '14px' }}>
+                        {evt.predictionOdds.prob}
+                      </div>
+                      <div style={{ color: '#6B7280', fontSize: '10px' }}>
+                        {evt.predictionOdds.source}
+                      </div>
+                    </div>
                   ) : (
-                    <span style={{ color: '#9CA3AF' }}>N/A</span>
+                    <span style={{ color: '#9CA3AF' }}>NO ODD MARKETS</span>
                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+                
+                <div style={{ color: '#9CA3AF', fontSize: '14px', paddingLeft: '8px' }}>
+                  →
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );

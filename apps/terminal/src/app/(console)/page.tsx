@@ -1,4 +1,7 @@
+'use client';
+
 import React from 'react';
+import Link from 'next/link';
 import { Value } from '../../components/Value';
 
 export default function BriefPage() {
@@ -12,7 +15,9 @@ export default function BriefPage() {
       breakdown: 'Matches active thesis (+40); Triggers complete thesis invalidation (+30); Cross-source contradiction (+20)',
       source: 'fred',
       val: '5.75%',
-      age: 10
+      age: 10,
+      bias: 'BEARISH' as const,
+      instruments: ['GBP/USD', 'DXY', 'TLT'],
     },
     {
       id: 'sal_2',
@@ -23,7 +28,9 @@ export default function BriefPage() {
       breakdown: 'Matches active thesis (+40); Cross-source contradiction (+20); Metric velocity accelerating (+10)',
       source: 'fca_short_positions',
       val: '4.85%',
-      age: 120
+      age: 120,
+      bias: 'BEARISH' as const,
+      instruments: ['ASC.L', 'BOO.L', 'NMX53'],
     },
     {
       id: 'sal_3',
@@ -34,9 +41,17 @@ export default function BriefPage() {
       breakdown: 'Matches active thesis (+40)',
       source: 'usaspending',
       val: '$5,000,000.00',
-      age: 3600
+      age: 3600,
+      bias: 'BULLISH' as const,
+      instruments: ['DIS', 'ITA'],
     }
   ];
+
+  const biasConfig = {
+    BULLISH: { bg: '#DCFCE7', color: '#166534', border: '#86EFAC' },
+    BEARISH: { bg: '#FEE2E2', color: '#991B1B', border: '#FCA5A5' },
+    NEUTRAL: { bg: '#F7F7F5', color: '#6B7280', border: '#E4E4DF' },
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -49,7 +64,7 @@ export default function BriefPage() {
           The Brief
         </h1>
         <p style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>
-          Ranked cross-asset intelligence, deterministic explicit-weight salience ranking, and position impact assessment.
+          Ranked cross-asset intelligence, deterministic explicit-weight salience ranking, and position impact assessment. Click any story for full analysis.
         </p>
       </div>
 
@@ -78,43 +93,107 @@ export default function BriefPage() {
           [SALIENCE RANKING] HIGHEST PRIORITY OPPORTUNITIES & DELTAS
         </h2>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {salienceRankedDeltas.map((item) => (
-            <div key={item.id} style={{
-              border: '1px solid #E4E4DF',
-              padding: '16px',
-              backgroundColor: '#F7F7F5',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start'
-            }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{
-                    padding: '2px 8px',
-                    backgroundColor: item.score >= 80 ? '#FEE2E2' : '#FEF3C7',
-                    color: item.score >= 80 ? '#991B1B' : '#92400E',
-                    fontFamily: '"DM Mono", monospace',
-                    fontWeight: 700,
-                    fontSize: '11px',
-                    border: '1px solid #E4E4DF'
-                  }}>
-                    SALIENCE SCORE: {item.score}/100
-                  </span>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#14181B' }}>
-                    {item.title}
-                  </span>
-                </div>
-                <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace' }}>
-                  <strong>WEIGHT BREAKDOWN:</strong> {item.breakdown}
-                </div>
-              </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {salienceRankedDeltas.map((item) => {
+            const bias = biasConfig[item.bias];
+            return (
+              <Link
+                key={item.id}
+                href={`/story/${item.id}`}
+                style={{ textDecoration: 'none', display: 'block' }}
+              >
+                <div style={{
+                  border: `1px solid ${bias.border}`,
+                  padding: '16px',
+                  backgroundColor: '#F7F7F5',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s ease, border-color 0.15s ease',
+                }}
+                  onMouseEnter={e => {
+                    (e.currentTarget as any).style.backgroundColor = bias.bg;
+                    (e.currentTarget as any).style.borderColor = bias.color;
+                  }}
+                  onMouseLeave={e => {
+                    (e.currentTarget as any).style.backgroundColor = '#F7F7F5';
+                    (e.currentTarget as any).style.borderColor = bias.border;
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <span style={{
+                        padding: '2px 8px',
+                        backgroundColor: item.score >= 80 ? '#FEE2E2' : '#FEF3C7',
+                        color: item.score >= 80 ? '#991B1B' : '#92400E',
+                        fontFamily: '"DM Mono", monospace',
+                        fontWeight: 700,
+                        fontSize: '11px',
+                        border: '1px solid #E4E4DF',
+                      }}>
+                        SALIENCE: {item.score}/100
+                      </span>
+                      <span style={{
+                        padding: '2px 8px',
+                        backgroundColor: bias.bg,
+                        color: bias.color,
+                        fontFamily: '"DM Mono", monospace',
+                        fontWeight: 700,
+                        fontSize: '10px',
+                        border: `1px solid ${bias.border}`,
+                      }}>
+                        {item.bias}
+                      </span>
+                      <span style={{
+                        padding: '2px 6px',
+                        backgroundColor: '#1C3A5E',
+                        color: '#FFFFFF',
+                        fontFamily: '"DM Mono", monospace',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                      }}>
+                        {item.pillar}
+                      </span>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#14181B' }}>
+                        {item.title}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace' }}>
+                      <strong>WEIGHT BREAKDOWN:</strong> {item.breakdown}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
+                      {item.instruments.map(t => (
+                        <span key={t} style={{
+                          padding: '1px 6px',
+                          backgroundColor: '#FFFFFF',
+                          border: `1px solid ${bias.border}`,
+                          fontFamily: '"DM Mono", monospace',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: bias.color,
+                        }}>
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
 
-              <div style={{ textAlign: 'right' }}>
-                <Value provenance={{ value: item.val, source: item.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: item.age }} />
-              </div>
-            </div>
-          ))}
+                  <div style={{ textAlign: 'right', marginLeft: '16px' }}>
+                    <Value provenance={{ value: item.val, source: item.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: item.age }} />
+                    <div style={{
+                      fontSize: '10px',
+                      fontFamily: '"DM Mono", monospace',
+                      color: '#6B7280',
+                      marginTop: '6px',
+                    }}>
+                      CLICK FOR FULL ANALYSIS →
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </div>
     </div>

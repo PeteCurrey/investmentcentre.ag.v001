@@ -1,18 +1,27 @@
+'use client';
+
 import React from 'react';
+import Link from 'next/link';
 import { Value } from '../../../components/Value';
 
 export default function MarketsPage() {
   const prices = [
-    { symbol: 'GBP/USD', name: 'British Pound / US Dollar', price: '1.3145', change: '+0.42%', source: 'twelve_data', age: 5 },
-    { symbol: 'EUR/USD', name: 'Euro / US Dollar', price: '1.0920', change: '-0.15%', source: 'twelve_data', age: 5 },
-    { symbol: 'WTI_CRUDE', name: 'WTI Light Sweet Crude', price: '$78.40', change: '+1.85%', source: 'twelve_data', age: 10 },
-    { symbol: 'SPX_INDEX', name: 'S&P 500 Index', price: '5,520.40', change: '+0.28%', source: 'finnhub', age: 15 }
+    { id: 'mkt_gbpusd', symbol: 'GBP/USD', name: 'British Pound / US Dollar', price: '1.3145', change: '+0.42%', source: 'twelve_data', age: 5, bias: 'NEUTRAL' as const, note: 'Range-bound 1.295–1.328. FOMC catalyst.' },
+    { id: 'mkt_eurusd', symbol: 'EUR/USD', name: 'Euro / US Dollar', price: '1.0920', change: '-0.15%', source: 'twelve_data', age: 5, bias: 'BEARISH' as const, note: 'USD strength on delayed cut cycle.' },
+    { id: 'mkt_wti', symbol: 'WTI_CRUDE', name: 'WTI Light Sweet Crude', price: '$78.40', change: '+1.85%', source: 'twelve_data', age: 10, bias: 'BULLISH' as const, note: 'EIA draw -3.4M bbl vs +1.2M consensus.' },
+    { id: 'mkt_spx', symbol: 'SPX_INDEX', name: 'S&P 500 Index', price: '5,520.40', change: '+0.28%', source: 'finnhub', age: 15, bias: 'NEUTRAL' as const, note: 'Earnings season support. Fed rate sensitivity.' },
   ];
 
   const shortPositions = [
-    { company: 'ASOS PLC', ticker: 'ASC.L', netShortPct: '7.85%', manager: 'Marshall Wace LLP', date: '2026-08-01' },
-    { company: 'BOOHOO GROUP PLC', ticker: 'BOO.L', netShortPct: '5.40%', manager: 'GLG Partners', date: '2026-08-01' }
+    { id: 'mkt_short_asos', company: 'ASOS PLC', ticker: 'ASC.L', netShortPct: '7.85%', manager: 'Marshall Wace LLP', date: '2026-08-01', severity: 'HIGH' },
+    { id: 'mkt_short_boohoo', company: 'BOOHOO GROUP PLC', ticker: 'BOO.L', netShortPct: '5.40%', manager: 'GLG Partners', date: '2026-08-01', severity: 'MEDIUM' },
   ];
+
+  const biasConfig = {
+    BULLISH: { bg: '#DCFCE7', color: '#166534', border: '#86EFAC', arrow: '↑' },
+    BEARISH: { bg: '#FEE2E2', color: '#991B1B', border: '#FCA5A5', arrow: '↓' },
+    NEUTRAL: { bg: '#F7F7F5', color: '#6B7280', border: '#E4E4DF', arrow: '→' },
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -24,7 +33,7 @@ export default function MarketsPage() {
           The Markets
         </h1>
         <p style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>
-          Real-time price feeds, futures positioning (CFTC COT), and FCA disclosed UK short positions.
+          Real-time price feeds, futures positioning (CFTC COT), and FCA disclosed UK short positions. Click any item for full trader analysis.
         </p>
       </div>
 
@@ -39,23 +48,68 @@ export default function MarketsPage() {
           borderBottom: '1px solid #E4E4DF',
           color: '#1C3A5E'
         }}>
-          MULTI-ASSET SPOT BREADTH
+          MULTI-ASSET SPOT BREADTH — CLICK FOR FULL ANALYSIS
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', padding: '16px' }}>
-          {prices.map((p) => (
-            <div key={p.symbol} style={{ border: '1px solid #E4E4DF', padding: '14px', backgroundColor: '#FFFFFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: '#14181B' }}>{p.symbol}</div>
-                <div style={{ fontSize: '11px', color: '#6B7280' }}>{p.name}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <Value provenance={{ value: p.price, source: p.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: p.age }} />
-                <div style={{ fontSize: '11px', fontFamily: '"DM Mono", monospace', fontWeight: 700, color: p.change.startsWith('+') ? '#16A34A' : '#DC2626', marginTop: '2px' }}>
-                  {p.change}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }}>
+          {prices.map((p, idx) => {
+            const bias = biasConfig[p.bias];
+            const isPositive = p.change.startsWith('+');
+            return (
+              <Link
+                key={p.symbol}
+                href={`/story/${p.id}`}
+                style={{ textDecoration: 'none' }}
+              >
+                <div
+                  style={{
+                    padding: '16px',
+                    borderRight: idx % 2 === 0 ? '1px solid #E4E4DF' : 'none',
+                    borderBottom: idx < 2 ? '1px solid #E4E4DF' : 'none',
+                    backgroundColor: '#FFFFFF',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.15s ease',
+                  }}
+                  onMouseEnter={e => ((e.currentTarget as any).style.backgroundColor = '#F7F7F5')}
+                  onMouseLeave={e => ((e.currentTarget as any).style.backgroundColor = '#FFFFFF')}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#14181B' }}>{p.symbol}</span>
+                        <span style={{
+                          padding: '1px 6px',
+                          backgroundColor: bias.bg,
+                          color: bias.color,
+                          fontFamily: '"DM Mono", monospace',
+                          fontWeight: 700,
+                          fontSize: '10px',
+                          border: `1px solid ${bias.border}`,
+                        }}>
+                          {bias.arrow} {p.bias}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '6px' }}>{p.name}</div>
+                      <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace', fontStyle: 'italic' }}>
+                        {p.note}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <Value provenance={{ value: p.price, source: p.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: p.age }} />
+                      <div style={{
+                        fontSize: '12px',
+                        fontFamily: '"DM Mono", monospace',
+                        fontWeight: 700,
+                        color: isPositive ? '#16A34A' : '#DC2626',
+                        marginTop: '2px',
+                      }}>
+                        {p.change}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       </div>
 
@@ -70,30 +124,68 @@ export default function MarketsPage() {
           borderBottom: '1px solid #E4E4DF',
           color: '#1C3A5E'
         }}>
-          FCA UK NET SHORT POSITIONS REGISTER
+          FCA UK NET SHORT POSITIONS REGISTER — CLICK FOR FULL ANALYSIS
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', fontFamily: '"DM Mono", monospace' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #E4E4DF', textAlign: 'left', color: '#6B7280' }}>
-              <th style={{ padding: '10px 16px' }}>COMPANY</th>
-              <th style={{ padding: '10px 16px' }}>TICKER</th>
-              <th style={{ padding: '10px 16px' }}>NET SHORT %</th>
-              <th style={{ padding: '10px 16px' }}>INVESTMENT MANAGER</th>
-              <th style={{ padding: '10px 16px' }}>DISCLOSED DATE</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shortPositions.map((s, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid #E4E4DF' }}>
-                <td style={{ padding: '12px 16px', fontWeight: 700 }}>{s.company}</td>
-                <td style={{ padding: '12px 16px' }}>{s.ticker}</td>
-                <td style={{ padding: '12px 16px', color: '#DC2626', fontWeight: 700 }}>{s.netShortPct}</td>
-                <td style={{ padding: '12px 16px' }}>{s.manager}</td>
-                <td style={{ padding: '12px 16px', color: '#6B7280' }}>{s.date}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {shortPositions.map((s, idx) => (
+            <Link
+              key={s.id}
+              href={`/story/${s.id}`}
+              style={{ textDecoration: 'none', display: 'block' }}
+            >
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderBottom: idx < shortPositions.length - 1 ? '1px solid #E4E4DF' : 'none',
+                  backgroundColor: '#FFFFFF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s ease',
+                }}
+                onMouseEnter={e => ((e.currentTarget as any).style.backgroundColor = '#FEE2E2')}
+                onMouseLeave={e => ((e.currentTarget as any).style.backgroundColor = '#FFFFFF')}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#14181B', fontFamily: '"DM Mono", monospace', marginBottom: '2px' }}>
+                      {s.ticker}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#6B7280' }}>{s.company}</div>
+                  </div>
+                  <div style={{
+                    fontSize: '20px',
+                    fontFamily: '"DM Mono", monospace',
+                    fontWeight: 700,
+                    color: '#DC2626',
+                  }}>
+                    {s.netShortPct}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace' }}>
+                    Net Short<br />{s.manager}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ textAlign: 'right', fontSize: '11px', fontFamily: '"DM Mono", monospace', color: '#6B7280' }}>
+                    Disclosed: {s.date}
+                  </div>
+                  <span style={{
+                    padding: '3px 10px',
+                    backgroundColor: s.severity === 'HIGH' ? '#FEE2E2' : '#FEF3C7',
+                    color: s.severity === 'HIGH' ? '#991B1B' : '#92400E',
+                    fontFamily: '"DM Mono", monospace',
+                    fontWeight: 700,
+                    fontSize: '10px',
+                    border: `1px solid ${s.severity === 'HIGH' ? '#FCA5A5' : '#FCD34D'}`,
+                  }}>
+                    {s.severity} CONVICTION →
+                  </span>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );
