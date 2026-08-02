@@ -41,20 +41,41 @@ export abstract class BaseAdapter<T = unknown> implements Adapter<T> {
   abstract validate(raw: RawPayload): import('@meridian/core').Result<ValidatedPayload<T>>;
   abstract normalise(validated: ValidatedPayload<T>): import('@meridian/core').Result<Observation[]>;
 
+  /**
+   * Returns true if the adapter has credentials configured (API key, token, etc).
+   * Overridden by concrete adapters to check their specific env var.
+   * A return value of true does NOT imply the credentials are valid or that the
+   * source is reachable — only that configuration is present.
+   * Default is false: un-overridden adapters report NOT_CONNECTED, not UNVERIFIED.
+   */
   protected checkApiKeyPresent(): boolean {
-    return true;
+    return false; // Default: assume not configured. Subclasses override to check actual env vars.
   }
 
+  /**
+   * Default health() implementation.
+   * Returns:
+   *   NOT_CONNECTED  — if checkApiKeyPresent() returns false (no API key / token found)
+   *   UNVERIFIED     — if credentials appear configured but no live fetch has been verified
+   *
+   * Concrete adapters that perform a real connectivity probe should override this method
+   * and return HEALTHY (or DEGRADED/OFFLINE) based on an actual network check.
+   *
+   * UNVERIFIED is intentionally distinct from HEALTHY: "key present" is not evidence
+   * that the source is reachable, quotas are intact, or data is flowing.
+   */
   public async health(): Promise<SourceHealth> {
-    const hasKey = this.checkApiKeyPresent();
+    const hasCredentials = this.checkApiKeyPresent();
     return {
       source_id: this.sourceId,
-      state: hasKey ? 'HEALTHY' : 'NOT_CONNECTED',
-      last_success_at: hasKey ? new Date().toISOString() : null,
+      // UNVERIFIED: credentials configured but no live fetch verified against this source.
+      // NOT_CONNECTED: no credentials found — adapter cannot connect at all.
+      state: hasCredentials ? 'UNVERIFIED' : 'NOT_CONNECTED',
+      last_success_at: null,  // null until a real fetch succeeds; override health() to populate.
       expected_cadence: this.cadence,
       staleness_seconds: 0,
       error_rate_24h: 0.0,
-      rows_written_last_window: hasKey ? 10 : 0,
+      rows_written_last_window: 0,
       quota_consumed_mtd: 0,
       cost_mtd_usd: 0.0,
       updated_at: new Date().toISOString()

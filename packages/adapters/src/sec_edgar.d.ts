@@ -7,13 +7,13 @@ declare const EdgarFilingSchema: z.ZodObject<{
     formType: z.ZodString;
     filedAt: z.ZodString;
 }, "strip", z.ZodTypeAny, {
-    cik: string;
     companyName: string;
+    cik: string;
     formType: string;
     filedAt: string;
 }, {
-    cik: string;
     companyName: string;
+    cik: string;
     formType: string;
     filedAt: string;
 }>;

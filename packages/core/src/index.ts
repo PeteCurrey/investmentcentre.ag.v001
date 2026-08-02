@@ -1,4 +1,4 @@
 export * from './types';
 export * from './money';
-export * from './db';
+export { getSupabaseClient } from './db';
 

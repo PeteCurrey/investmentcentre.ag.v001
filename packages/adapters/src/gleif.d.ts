@@ -7,14 +7,14 @@ declare const GleifLeiSchema: z.ZodObject<{
     status: z.ZodString;
     jurisdiction: z.ZodString;
 }, "strip", z.ZodTypeAny, {
-    status: string;
     lei: string;
     legalName: string;
+    status: string;
     jurisdiction: string;
 }, {
-    status: string;
     lei: string;
     legalName: string;
+    status: string;
     jurisdiction: string;
 }>;
 export type GleifLei = z.infer<typeof GleifLeiSchema>;

@@ -8,9 +8,14 @@ export interface BrokerPosition {
   instrument: string;
   units: ScaledInteger;
   entryPrice: ScaledInteger;
-  stopLossPrice: ScaledInteger;
+  /** Not sourced from the positions endpoint (requires a separate orders call). undefined means unknown — callers must NOT assume a position with undefined stopLossPrice is protected. */
+  stopLossPrice?: ScaledInteger;
   unrealizedPnl: ScaledInteger;
   openedAt: string;
+  /** Provenance: which adapter/endpoint produced this record */
+  source: string;
+  /** Provenance: ISO timestamp when this record was fetched from the broker */
+  fetchedAt: string;
 }
 
 export interface BrokerAccountState {
@@ -20,6 +25,10 @@ export interface BrokerAccountState {
   unrealizedPnl: ScaledInteger;
   openPositionsCount: number;
   currency: string;
+  /** Provenance: which adapter/endpoint produced this record */
+  source: string;
+  /** Provenance: ISO timestamp when this record was fetched from the broker */
+  fetchedAt: string;
 }
 
 export interface BrokerOrder {
@@ -59,7 +68,7 @@ export class PaperBroker implements BrokerAdapter {
       instrument: intent.instrument,
       status: 'FILLED',
       units: intent.units,
-      fillPrice: intent.stopLossPrice, // Simulated execution
+      fillPrice: intent.stopLossPrice.price, // Simulated execution
       submittedAt: new Date().toISOString()
     };
 
@@ -81,13 +90,18 @@ export class PaperBroker implements BrokerAdapter {
   }
 
   public async getAccountState(accountId: string): Promise<Result<BrokerAccountState>> {
+    // PAPER MODE: balance/equity are intentional simulation fiction (not fetched data).
+    // Callers can distinguish via isPaper === true. These values are not hardcoded fallbacks
+    // standing in for real data — they are the paper account's defined starting state.
     return ok({
       accountId,
-      balance: 10000000n as ScaledInteger,
-      equity: 10000000n as ScaledInteger,
+      balance: 10000000n as ScaledInteger,   // Paper starting balance: $100,000.00 (scale 2)
+      equity: 10000000n as ScaledInteger,    // Paper starting equity: $100,000.00 (scale 2)
       unrealizedPnl: 0n as ScaledInteger,
       openPositionsCount: this.positions.size,
-      currency: 'USD'
+      currency: 'USD',
+      source: 'paper',
+      fetchedAt: new Date().toISOString()
     });
   }
 }

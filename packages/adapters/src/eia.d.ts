@@ -9,14 +9,14 @@ declare const EiaStorageSchema: z.ZodObject<{
     period: z.ZodString;
 }, "strip", z.ZodTypeAny, {
     value: number;
-    name: string;
     seriesId: string;
+    name: string;
     unit: string;
     period: string;
 }, {
     value: number;
-    name: string;
     seriesId: string;
+    name: string;
     unit: string;
     period: string;
 }>;

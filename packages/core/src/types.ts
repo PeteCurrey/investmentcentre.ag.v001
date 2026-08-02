@@ -55,7 +55,7 @@ export interface Observation {
   raw_ref: string;
 }
 
-export type SourceHealthState = 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'NOT_CONNECTED';
+export type SourceHealthState = 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'NOT_CONNECTED' | 'UNVERIFIED';
 
 export interface SourceHealth {
   source_id: string;

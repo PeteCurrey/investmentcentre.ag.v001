@@ -22,5 +22,6 @@ export declare function createPrice(price: ScaledInteger, scale: number, currenc
 export declare function addMoney(a: Money, b: Money): Money;
 export declare function subMoney(a: Money, b: Money): Money;
 export declare function moneyToString(m: Money): string;
+export declare function normalizeScale(amount: ScaledInteger, fromScale: number, toScale: number, roundingMode?: 'trunc' | 'ceil'): ScaledInteger;
 export {};
 //# sourceMappingURL=money.d.ts.map

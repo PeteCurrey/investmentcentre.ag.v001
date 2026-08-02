@@ -1,4 +1,4 @@
-import { Observation, Result, ok, err, ScaledInteger } from '@meridian/core';
+import { Observation, Result, ok, err, ScaledInteger, Price, createPrice, toScaledInteger } from '@meridian/core';
 import { RiskGate, RiskProfile, AccountRiskState, OrderIntent, ApprovalToken, FTMO_STANDARD_PROFILE } from '@meridian/risk';
 import { EdgeOpportunity } from '@meridian/edge';
 import { BrokerAdapter, BrokerOrder } from '@meridian/execute';
@@ -13,8 +13,9 @@ export interface AutomationRule {
   enabled: boolean;
   targetInstrument: string;
   direction: 'BUY' | 'SELL';
-  stopLossPrice: ScaledInteger;
-  takeProfitPrice?: ScaledInteger;
+  entryPrice: Price;
+  stopLossPrice: Price;
+  takeProfitPrice?: Price;
 }
 
 export interface WatchAlert {
@@ -82,6 +83,7 @@ export class AutomationEngine {
       instrument: rule.targetInstrument,
       direction: rule.direction,
       units: 10000n as ScaledInteger,
+      entryPrice: rule.entryPrice,
       stopLossPrice: rule.stopLossPrice,
       takeProfitPrice: rule.takeProfitPrice,
       requestedAt: now
@@ -94,9 +96,9 @@ export class AutomationEngine {
       direction: rule.direction,
       convictionScore: 85,
       sizingRecommendedPct: 1.0,
-      entryPrice: obs.value_numeric ? (obs.value_numeric as ScaledInteger) : 13145n as ScaledInteger,
-      stopLossPrice: rule.stopLossPrice,
-      takeProfitPrice: rule.takeProfitPrice,
+      entryPrice: rule.entryPrice.price,
+      stopLossPrice: rule.stopLossPrice.price,
+      takeProfitPrice: rule.takeProfitPrice?.price,
       attachedObservations: [obs],
       adversarySurvived: true,
       correlationGroup: 'USD_SHORT_EXPOSURE',

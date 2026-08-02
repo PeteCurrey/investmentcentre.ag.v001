@@ -20,3 +20,7 @@ export function getSupabaseClient(): SupabaseClient {
 
   return supabaseInstance;
 }
+
+export function resetSupabaseClient(): void {
+  supabaseInstance = null;
+}

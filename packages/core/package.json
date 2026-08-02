@@ -6,7 +6,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "test": "vitest run",
-    "build": "npx tsup src/index.ts --format cjs --dts"
+    "build": "tsc"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.0.0"

@@ -3,9 +3,12 @@
 import React from 'react';
 
 export default function AutomationPage() {
-  const tier4Enabled = process.env.NEXT_PUBLIC_TIER_4_ENABLED !== 'false';
-  const oandaEnv = process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT || 'practice';
-  const oandaAccount = process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID || '101-004-39906540-001';
+  // FAIL-CLOSED: Tier 4 execution is only active when NEXT_PUBLIC_TIER_4_ENABLED is explicitly 'true'.
+  // Any other value (absent, 'false', misspelled) correctly maps to disabled.
+  const tier4Enabled = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
+  // FAIL-CLOSED: No fallback for environment or account ID. Unconfigured state is shown explicitly.
+  const oandaEnv = process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT || undefined;
+  const oandaAccount = process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID || undefined;
 
   const rules = [
     {
@@ -86,7 +89,7 @@ export default function AutomationPage() {
         {tier4Enabled && (
           <div style={{ textAlign: 'right', fontSize: '11px', color: '#166534' }}>
             <div>BROKER: Oanda v20 REST API</div>
-            <div>ENV: {oandaEnv.toUpperCase()} | ACCOUNT: {oandaAccount}</div>
+            <div>ENV: {oandaEnv ? oandaEnv.toUpperCase() : <span style={{ color: '#991B1B' }}>UNCONFIGURED</span>} | ACCOUNT: {oandaAccount ?? <span style={{ color: '#991B1B' }}>UNCONFIGURED</span>}</div>
           </div>
         )}
       </div>

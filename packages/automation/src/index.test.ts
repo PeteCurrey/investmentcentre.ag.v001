@@ -1,10 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AutomationEngine, AutomationRule } from './index';
-import { Pillar, Observation, toScaledInteger } from '@meridian/core';
+import { Pillar, Observation, toScaledInteger, createPrice } from '@meridian/core';
 import { PaperBroker } from '@meridian/execute';
 import { AccountRiskState, FTMO_STANDARD_PROFILE } from '@meridian/risk';
 
 describe('packages/automation (4-Tier Automation Engine)', () => {
+  const origSecret = process.env.RISK_HMAC_SECRET;
+  const validSecret = 'valid_test_secret_key_that_is_at_least_32_chars_long!';
+
+  beforeEach(() => {
+    process.env.RISK_HMAC_SECRET = validSecret;
+  });
+
+  afterEach(() => {
+    if (origSecret) {
+      process.env.RISK_HMAC_SECRET = origSecret;
+    } else {
+      delete process.env.RISK_HMAC_SECRET;
+    }
+  });
+
   const dummyObs: Observation = {
     id: 'obs_trigger_1',
     source_id: 'fred',
@@ -32,14 +47,18 @@ describe('packages/automation (4-Tier Automation Engine)', () => {
     enabled: true,
     targetInstrument: 'GBP_USD',
     direction: 'BUY',
-    stopLossPrice: toScaledInteger(13000n)
+    entryPrice: createPrice(toScaledInteger(13145n), 4, 'USD'),
+    stopLossPrice: createPrice(toScaledInteger(13000n), 4, 'USD')
   };
 
   it('runs Tier 1 WATCH and generates alert', () => {
     const engine = new AutomationEngine(false);
     const alert = engine.processWatch(watchRule, dummyObs);
-    expect(alert.ruleId).toBe(watchRule.id);
-    expect(alert.message).toMatch(/TIER 1 WATCH ALERT/);
+    expect(alert).not.toBeNull();
+    if (alert) {
+      expect(alert.ruleId).toBe(watchRule.id);
+      expect(alert.message).toMatch(/WATCH ALERT/);
+    }
   });
 
   it('runs Tier 2 RESEARCH and compiles dossier with verified citations', () => {

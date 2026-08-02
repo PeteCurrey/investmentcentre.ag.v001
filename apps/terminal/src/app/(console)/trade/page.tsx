@@ -40,16 +40,17 @@ interface AiAnalysis {
 }
 
 // ─── Instrument Catalogue ────────────────────────────────────────────────────
-
+// Static metadata for supported instruments. Prices, 24h changes, and spreads default to '—'
+// as live spot polling is managed via the TradingView engine / live broker feed.
 const INSTRUMENTS: Instrument[] = [
-  { symbol: 'GBP/USD', tvSymbol: 'OANDA:GBPUSD', price: '1.3145', change: '+0.42%', spread: '0.8', oandaId: 'GBP_USD', digits: 5 },
-  { symbol: 'EUR/USD', tvSymbol: 'OANDA:EURUSD', price: '1.0920', change: '-0.15%', spread: '0.6', oandaId: 'EUR_USD', digits: 5 },
-  { symbol: 'USD/JPY', tvSymbol: 'OANDA:USDJPY', price: '153.40', change: '+0.22%', spread: '0.7', oandaId: 'USD_JPY', digits: 3 },
-  { symbol: 'EUR/GBP', tvSymbol: 'OANDA:EURGBP', price: '0.8312', change: '-0.08%', spread: '0.9', oandaId: 'EUR_GBP', digits: 5 },
-  { symbol: 'WTI Oil', tvSymbol: 'TVC:USOIL', price: '78.40', change: '+1.85%', spread: '2.0', oandaId: 'BCO_USD', digits: 2 },
-  { symbol: 'SPX 500', tvSymbol: 'FOREXCOM:SPXUSD', price: '5520.40', change: '+0.28%', spread: '0.4', oandaId: 'SPX500_USD', digits: 1 },
-  { symbol: 'BTC/USD', tvSymbol: 'COINBASE:BTCUSD', price: '64850', change: '+2.10%', spread: '12', oandaId: 'BTC_USD', digits: 2 },
-  { symbol: 'XAU/USD', tvSymbol: 'OANDA:XAUUSD', price: '2320.50', change: '+0.55%', spread: '0.30', oandaId: 'XAU_USD', digits: 2 },
+  { symbol: 'GBP/USD', tvSymbol: 'OANDA:GBPUSD', price: '—', change: '—', spread: '—', oandaId: 'GBP_USD', digits: 5 },
+  { symbol: 'EUR/USD', tvSymbol: 'OANDA:EURUSD', price: '—', change: '—', spread: '—', oandaId: 'EUR_USD', digits: 5 },
+  { symbol: 'USD/JPY', tvSymbol: 'OANDA:USDJPY', price: '—', change: '—', spread: '—', oandaId: 'USD_JPY', digits: 3 },
+  { symbol: 'EUR/GBP', tvSymbol: 'OANDA:EURGBP', price: '—', change: '—', spread: '—', oandaId: 'EUR_GBP', digits: 5 },
+  { symbol: 'WTI Oil', tvSymbol: 'TVC:USOIL', price: '—', change: '—', spread: '—', oandaId: 'BCO_USD', digits: 2 },
+  { symbol: 'SPX 500', tvSymbol: 'FOREXCOM:SPXUSD', price: '—', change: '—', spread: '—', oandaId: 'SPX500_USD', digits: 1 },
+  { symbol: 'BTC/USD', tvSymbol: 'COINBASE:BTCUSD', price: '—', change: '—', spread: '—', oandaId: 'BTC_USD', digits: 2 },
+  { symbol: 'XAU/USD', tvSymbol: 'OANDA:XAUUSD', price: '—', change: '—', spread: '—', oandaId: 'XAU_USD', digits: 2 },
 ];
 
 const TIMEFRAMES = [
@@ -80,8 +81,8 @@ export default function TradePage() {
   const [timeframe, setTimeframe] = useState('15');
   const [direction, setDirection] = useState<'BUY' | 'SELL'>('BUY');
   const [units, setUnits] = useState('10000');
-  const [stopLoss, setStopLoss] = useState('1.3050');
-  const [takeProfit, setTakeProfit] = useState('1.3250');
+  const [stopLoss, setStopLoss] = useState('');
+  const [takeProfit, setTakeProfit] = useState('');
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
   const [limitPrice, setLimitPrice] = useState('');
 
@@ -89,22 +90,10 @@ export default function TradePage() {
   const [execMsg, setExecMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<AiAnalysis | null>({
-    rating: 'HIGH CONVICTION BUY',
-    rrRatio: '1 : 2.10',
-    rsiContext: 'RSI 14 at 54.2 — neutral-bullish momentum, room to extend higher before overbought',
-    macdContext: 'MACD bullish crossover above signal line; histogram expanding positively',
-    bbContext: 'Price trading within upper half of Bollinger Band — directional bias confirmed',
-    consensusScore: '92% Conviction',
-    keyRisk: 'USD CPI data release at 13:30 UTC — volatility spike risk on miss/beat',
-    summary: 'GBP/USD technical setup intact above 1.3050 support structure. FOMC rate hold expectations favour long posture. Momentum indicators confirm bullish bias with 1:2.10 R:R at defined levels.'
-  });
+  const [aiAnalysis, setAiAnalysis] = useState<AiAnalysis | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  const [logs, setLogs] = useState<OrderLog[]>([
-    { id: 'log_1', timestamp: '2026-08-02 19:42:10', type: 'AUTO', instrument: 'GBP/USD', direction: 'BUY', units: '10,000', fillPrice: '1.3140', status: 'FILLED', orderId: 'oanda_ord_982410', tier: 'TIER 4 AUTO' },
-    { id: 'log_2', timestamp: '2026-08-02 18:15:02', type: 'AUTO', instrument: 'WTI Oil', direction: 'BUY', units: '1,000', fillPrice: '78.20', status: 'FILLED', orderId: 'oanda_ord_982305', tier: 'TIER 4 AUTO' },
-  ]);
+  const [logs, setLogs] = useState<OrderLog[]>([]);
 
   // ── Handlers ──
 
@@ -134,6 +123,8 @@ export default function TradePage() {
       if (!res.ok || data.error) {
         setExecMsg({ ok: false, text: data.error || 'Execution failed' });
       } else {
+        const fillPriceVal = data.fillPrice || 'MARKET';
+        const orderIdVal = data.orderId || 'UNASSIGNED';
         const newLog: OrderLog = {
           id: `log_${Date.now()}`,
           timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -141,13 +132,13 @@ export default function TradePage() {
           instrument: inst.symbol,
           direction,
           units: Number(units).toLocaleString(),
-          fillPrice: data.fillPrice || inst.price,
+          fillPrice: fillPriceVal,
           status: 'FILLED',
-          orderId: data.orderId || `oanda_ord_${Math.floor(100000 + Math.random() * 900000)}`,
+          orderId: orderIdVal,
           tier: 'MANUAL DESK',
         };
         setLogs(prev => [newLog, ...prev]);
-        setExecMsg({ ok: true, text: `ORDER FILLED — ${direction} ${Number(units).toLocaleString()} ${inst.symbol} @ ${data.fillPrice || inst.price} | ID: ${data.orderId || newLog.orderId}` });
+        setExecMsg({ ok: true, text: `ORDER FILLED — ${direction} ${Number(units).toLocaleString()} ${inst.symbol} @ ${fillPriceVal} | ID: ${orderIdVal}` });
       }
     } catch (e: any) {
       setExecMsg({ ok: false, text: `Network error: ${e.message}` });
@@ -187,7 +178,9 @@ export default function TradePage() {
   }, [inst, direction, units, stopLoss, takeProfit, timeframe]);
 
   const aColor = aiAnalysis ? ratingColor(aiAnalysis.rating) : null;
-  const tier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED !== 'false';
+  // FAIL-CLOSED: Tier 4 execution is only active when NEXT_PUBLIC_TIER_4_ENABLED is explicitly 'true'.
+  // Any other value (absent, 'false', misspelled) correctly maps to disabled/observe mode.
+  const tier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
 
   // ── Render ──
 
@@ -404,6 +397,7 @@ export default function TradePage() {
                   <label style={{ color: '#6B7280', display: 'block', marginBottom: '3px' }}>STOP LOSS</label>
                   <input
                     type="text" value={stopLoss} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStopLoss((e.target as HTMLInputElement).value)}
+                    placeholder="Optional (e.g. 1.3050)"
                     style={{ width: '100%', padding: '7px 8px', border: '1px solid #FCA5A5', fontFamily: '"DM Mono", monospace', fontSize: '11px', boxSizing: 'border-box', color: '#991B1B' }}
                   />
                 </div>
@@ -411,6 +405,7 @@ export default function TradePage() {
                   <label style={{ color: '#6B7280', display: 'block', marginBottom: '3px' }}>TAKE PROFIT</label>
                   <input
                     type="text" value={takeProfit} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTakeProfit((e.target as HTMLInputElement).value)}
+                    placeholder="Optional (e.g. 1.3250)"
                     style={{ width: '100%', padding: '7px 8px', border: '1px solid #86EFAC', fontFamily: '"DM Mono", monospace', fontSize: '11px', boxSizing: 'border-box', color: '#166534' }}
                   />
                 </div>
@@ -560,36 +555,44 @@ export default function TradePage() {
             </tr>
           </thead>
           <tbody>
-            {logs.map(log => (
-              <tr key={log.id} style={{ borderBottom: '1px solid #F0F0EC' }}>
-                <td style={{ padding: '9px 14px', color: '#6B7280' }}>{log.timestamp}</td>
-                <td style={{ padding: '9px 14px' }}>
-                  <span style={{
-                    padding: '1px 6px',
-                    backgroundColor: log.type === 'AUTO' ? '#1C3A5E' : '#F7F7F5',
-                    color: log.type === 'AUTO' ? '#C8F135' : '#14181B',
-                    fontSize: '8px',
-                    fontWeight: 700,
-                    letterSpacing: '0.5px',
-                  }}>{log.tier}</span>
-                </td>
-                <td style={{ padding: '9px 14px', fontWeight: 600 }}>{log.instrument}</td>
-                <td style={{ padding: '9px 14px', fontWeight: 700, color: log.direction === 'BUY' ? '#16A34A' : '#DC2626' }}>{log.direction}</td>
-                <td style={{ padding: '9px 14px' }}>{log.units}</td>
-                <td style={{ padding: '9px 14px' }}>{log.fillPrice}</td>
-                <td style={{ padding: '9px 14px', color: '#6B7280', fontSize: '9px' }}>{log.orderId}</td>
-                <td style={{ padding: '9px 14px' }}>
-                  <span style={{
-                    padding: '1px 6px',
-                    backgroundColor: log.status === 'FILLED' ? '#DCFCE7' : '#FEF3C7',
-                    color: log.status === 'FILLED' ? '#166534' : '#92400E',
-                    border: `1px solid ${log.status === 'FILLED' ? '#86EFAC' : '#FCD34D'}`,
-                    fontSize: '8px',
-                    fontWeight: 700,
-                  }}>{log.status}</span>
+            {logs.length === 0 ? (
+              <tr>
+                <td colSpan={8} style={{ padding: '16px 14px', color: '#94A3B8', textAlign: 'center', fontStyle: 'italic' }}>
+                  NO EXECUTIONS RECORDED IN CURRENT SESSION
                 </td>
               </tr>
-            ))}
+            ) : (
+              logs.map(log => (
+                <tr key={log.id} style={{ borderBottom: '1px solid #F0F0EC' }}>
+                  <td style={{ padding: '9px 14px', color: '#6B7280' }}>{log.timestamp}</td>
+                  <td style={{ padding: '9px 14px' }}>
+                    <span style={{
+                      padding: '1px 6px',
+                      backgroundColor: log.type === 'AUTO' ? '#1C3A5E' : '#F7F7F5',
+                      color: log.type === 'AUTO' ? '#C8F135' : '#14181B',
+                      fontSize: '8px',
+                      fontWeight: 700,
+                      letterSpacing: '0.5px',
+                    }}>{log.tier}</span>
+                  </td>
+                  <td style={{ padding: '9px 14px', fontWeight: 600 }}>{log.instrument}</td>
+                  <td style={{ padding: '9px 14px', fontWeight: 700, color: log.direction === 'BUY' ? '#16A34A' : '#DC2626' }}>{log.direction}</td>
+                  <td style={{ padding: '9px 14px' }}>{log.units}</td>
+                  <td style={{ padding: '9px 14px' }}>{log.fillPrice}</td>
+                  <td style={{ padding: '9px 14px', color: '#6B7280', fontSize: '9px' }}>{log.orderId}</td>
+                  <td style={{ padding: '9px 14px' }}>
+                    <span style={{
+                      padding: '1px 6px',
+                      backgroundColor: log.status === 'FILLED' ? '#DCFCE7' : '#FEF3C7',
+                      color: log.status === 'FILLED' ? '#166534' : '#92400E',
+                      border: `1px solid ${log.status === 'FILLED' ? '#86EFAC' : '#FCD34D'}`,
+                      fontSize: '8px',
+                      fontWeight: 700,
+                    }}>{log.status}</span>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

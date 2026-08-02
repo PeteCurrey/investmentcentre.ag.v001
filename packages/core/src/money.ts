@@ -73,3 +73,22 @@ export function moneyToString(m: Money): string {
   const formatted = m.scale > 0 ? `${integerPart}.${fractionalPart}` : integerPart;
   return `${isNegative ? '-' : ''}${formatted} ${m.currency}`;
 }
+
+export function normalizeScale(
+  amount: ScaledInteger,
+  fromScale: number,
+  toScale: number,
+  roundingMode: 'trunc' | 'ceil' = 'trunc'
+): ScaledInteger {
+  if (fromScale === toScale) return amount;
+  if (fromScale > toScale) {
+    const factor = 10n ** BigInt(fromScale - toScale);
+    if (roundingMode === 'ceil' && amount > 0n) {
+      return ((amount + factor - 1n) / factor) as ScaledInteger;
+    }
+    return (amount / factor) as ScaledInteger;
+  } else {
+    const factor = 10n ** BigInt(toScale - fromScale);
+    return (amount * factor) as ScaledInteger;
+  }
+}

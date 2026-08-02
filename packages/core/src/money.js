@@ -6,6 +6,7 @@ exports.createPrice = createPrice;
 exports.addMoney = addMoney;
 exports.subMoney = subMoney;
 exports.moneyToString = moneyToString;
+exports.normalizeScale = normalizeScale;
 /**
  * Converts a string or bigint integer into a branded ScaledInteger.
  * Floats are forbidden at compile time. Passing a JS `number` requires explicit conversion via string or bigint.
@@ -59,5 +60,20 @@ function moneyToString(m) {
     const fractionalPart = str.slice(-m.scale);
     const formatted = m.scale > 0 ? `${integerPart}.${fractionalPart}` : integerPart;
     return `${isNegative ? '-' : ''}${formatted} ${m.currency}`;
+}
+function normalizeScale(amount, fromScale, toScale, roundingMode = 'trunc') {
+    if (fromScale === toScale)
+        return amount;
+    if (fromScale > toScale) {
+        const factor = 10n ** BigInt(fromScale - toScale);
+        if (roundingMode === 'ceil' && amount > 0n) {
+            return ((amount + factor - 1n) / factor);
+        }
+        return (amount / factor);
+    }
+    else {
+        const factor = 10n ** BigInt(toScale - fromScale);
+        return (amount * factor);
+    }
 }
 //# sourceMappingURL=money.js.map
