@@ -4,7 +4,7 @@ import React from 'react';
 import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
-  { label: 'The Brief', href: '/' },
+  { label: 'The Brief', href: '/brief' },
   { label: 'The Edge', href: '/edge' },
   { label: 'The Horizon', href: '/horizon' },
   { label: 'The World', href: '/world' },
@@ -127,13 +127,13 @@ export default function ConsoleLayout({
               DOCUMENTATION & SPEC
             </div>
             <a
-              href="/landing"
+              href="/"
               style={{
                 padding: '6px 16px',
                 fontSize: '12px',
                 fontWeight: 600,
                 color: '#1C3A5E',
-                backgroundColor: pathname === '/landing' ? '#FFFFFF' : 'transparent',
+                backgroundColor: pathname === '/' || pathname === '/landing' ? '#FFFFFF' : 'transparent',
                 display: 'block',
                 textDecoration: 'none'
               }}

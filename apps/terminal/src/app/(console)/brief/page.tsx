@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Value } from '../../components/Value';
+import { Value } from '../../../components/Value';
 
 export default function BriefPage() {
   const [activeTab, setActiveTab] = useState<'ALL' | 'WORLD' | 'MARKETS' | 'UNDERCURRENT'>('ALL');
