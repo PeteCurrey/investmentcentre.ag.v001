@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "paths": {
+      "@meridian/core": ["./packages/core/src/index.ts"],
+      "@meridian/registry": ["./packages/registry/src/index.ts"],
+      "@meridian/adapters": ["./packages/adapters/src/index.ts"],
+      "@meridian/risk": ["./packages/risk/src/index.ts"],
+      "@meridian/execute": ["./packages/execute/src/index.ts"],
+      "@meridian/council": ["./packages/council/src/index.ts"],
+      "@meridian/ui": ["./packages/ui/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}

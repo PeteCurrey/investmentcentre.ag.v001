@@ -1,0 +1,28 @@
+{
+  "name": "meridian-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "node --experimental-vm-modules node_modules/.bin/vitest run --project packages/core packages/risk packages/execute packages/council packages/adapters",
+    "test:core": "node --experimental-vm-modules node_modules/.bin/vitest run packages/core/src",
+    "test:risk": "node --experimental-vm-modules node_modules/.bin/vitest run packages/risk/src",
+    "tsc": "node_modules/.bin/tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.111.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

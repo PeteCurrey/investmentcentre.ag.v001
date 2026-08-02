@@ -1,0 +1,21 @@
+{
+  "name": "@meridian/engine",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node ./dist/index.js",
+    "dev": "tsc -b --watch"
+  },
+  "dependencies": {
+    "@meridian/core": "*",
+    "@meridian/registry": "*",
+    "@meridian/adapters": "*",
+    "@meridian/delta": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.4"
+  }
+}

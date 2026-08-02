@@ -1,0 +1,54 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "paths": {
+      "@meridian/core": ["./packages/core/src/index.ts"],
+      "@meridian/registry": ["./packages/registry/src/index.ts"],
+      "@meridian/adapters": ["./packages/adapters/src/index.ts"],
+      "@meridian/risk": ["./packages/risk/src/index.ts"],
+      "@meridian/execute": ["./packages/execute/src/index.ts"],
+      "@meridian/council": ["./packages/council/src/index.ts"],
+      "@meridian/resolve": ["./packages/resolve/src/index.ts"],
+      "@meridian/salience": ["./packages/salience/src/index.ts"],
+      "@meridian/delta": ["./packages/delta/src/index.ts"],
+      "@meridian/horizon": ["./packages/horizon/src/index.ts"],
+      "@meridian/edge": ["./packages/edge/src/index.ts"],
+      "@meridian/brief": ["./packages/brief/src/index.ts"],
+      "@meridian/automation": ["./packages/automation/src/index.ts"],
+      "@meridian/ui": ["./packages/ui/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/core/src/**/*",
+    "packages/registry/src/**/*",
+    "packages/adapters/src/**/*",
+    "packages/risk/src/**/*",
+    "packages/execute/src/**/*",
+    "packages/council/src/**/*",
+    "packages/resolve/src/**/*",
+    "packages/salience/src/**/*",
+    "packages/delta/src/**/*",
+    "packages/horizon/src/**/*",
+    "packages/edge/src/**/*",
+    "packages/brief/src/**/*",
+    "packages/automation/src/**/*",
+    "packages/ui/src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/*.test.ts",
+    "apps/**/*"
+  ]
+}

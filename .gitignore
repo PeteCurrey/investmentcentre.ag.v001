@@ -1,0 +1,27 @@
+# Secrets — never commit
+.env.local
+.env.*.local
+.env
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Turbo cache
+.turbo/
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
