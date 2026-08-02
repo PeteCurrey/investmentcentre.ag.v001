@@ -41,7 +41,7 @@ export default function ConsoleLayout({
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span style={{ fontWeight: 700, letterSpacing: '1px' }}>MERIDIAN</span>
           <span style={{ color: '#E4E4DF' }}>|</span>
-          {process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true' ? (
+          {process.env.NEXT_PUBLIC_TIER_4_ENABLED !== 'false' ? (
             <span style={{ color: '#C8F135', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
               <span style={{ width: '8px', height: '8px', backgroundColor: '#C8F135', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 8px #C8F135' }}></span>
               SYSTEM ACTIVE [EXECUTE MODE]

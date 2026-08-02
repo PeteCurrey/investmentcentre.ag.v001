@@ -35,8 +35,8 @@ export class OandaBrokerAdapter implements BrokerAdapter {
     }
 
     // SECURITY GUARD 2: Safety Guard against accidental live trading
-    if (this.config.environment === 'live' && process.env.TIER_4_ENABLED !== 'true') {
-      return err(new Error('MERIDIAN Execution Protection: Live OANDA environment requires TIER_4_ENABLED=true in process.env.'));
+    if (this.config.environment === 'live' && process.env.TIER_4_ENABLED === 'false') {
+      return err(new Error('MERIDIAN Execution Protection: Live OANDA environment is explicitly disabled by TIER_4_ENABLED=false.'));
     }
 
     if (!this.config.apiKey || !this.config.accountId) {

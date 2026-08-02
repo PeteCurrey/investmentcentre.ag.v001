@@ -3,9 +3,9 @@
 import React from 'react';
 
 export default function AutomationPage() {
-  const tier4Enabled = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
+  const tier4Enabled = process.env.NEXT_PUBLIC_TIER_4_ENABLED !== 'false';
   const oandaEnv = process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT || 'practice';
-  const oandaAccount = process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID || '—';
+  const oandaAccount = process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID || '101-004-39906540-001';
 
   const rules = [
     {
