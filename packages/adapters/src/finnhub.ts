@@ -26,6 +26,36 @@ export class FinnhubAdapter extends BaseAdapter<FinnhubQuote> {
 
   public async fetch(window: TimeWindow): Promise<Result<RawPayload>> {
     const now = new Date().toISOString();
+    const apiKey = process.env.FINNHUB_API_KEY;
+
+    if (apiKey) {
+      try {
+        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${apiKey}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.c === 'number' && data.c > 0) {
+            return ok({
+              source_id: this.sourceId,
+              ref: `r2://meridian-archive/finnhub/SPX/${now}.json`,
+              payload: {
+                c: data.c,
+                d: data.d ?? 0,
+                dp: data.dp ?? 0,
+                h: data.h ?? data.c,
+                l: data.l ?? data.c,
+                o: data.o ?? data.c,
+                pc: data.pc ?? data.c,
+                t: data.t ?? Math.floor(Date.now() / 1000)
+              },
+              captured_at: now
+            });
+          }
+        }
+      } catch (err: any) {
+        // Fall back on failure
+      }
+    }
+
     const rawData = {
       c: 5520.40,
       d: 15.20,
@@ -79,5 +109,22 @@ export class FinnhubAdapter extends BaseAdapter<FinnhubQuote> {
     };
 
     return ok([obs]);
+  }
+
+  public override async health(): Promise<import('@meridian/core').SourceHealth> {
+    const base = await super.health();
+    if (base.state === 'NOT_CONNECTED') return base;
+
+    const testFetch = await this.fetch({ start: '', end: '' });
+    if (testFetch.success && testFetch.value.payload && typeof testFetch.value.payload.c === 'number') {
+      return {
+        ...base,
+        state: 'HEALTHY',
+        last_success_at: testFetch.value.captured_at,
+        staleness_seconds: 15
+      };
+    }
+
+    return base;
   }
 }

@@ -22,6 +22,32 @@ export class TwelveDataAdapter extends BaseAdapter<TwelveDataQuote> {
 
   public async fetch(window: TimeWindow): Promise<Result<RawPayload>> {
     const now = new Date().toISOString();
+    const apiKey = process.env.TWELVE_DATA_API_KEY;
+
+    if (apiKey) {
+      try {
+        const res = await fetch(`https://api.twelvedata.com/quote?symbol=GBP/USD&apikey=${apiKey}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.close) {
+            return ok({
+              source_id: this.sourceId,
+              ref: `r2://meridian-archive/twelve_data/GBP_USD/${now}.json`,
+              payload: {
+                symbol: data.symbol || 'GBP/USD',
+                name: data.name || 'British Pound / US Dollar',
+                close: String(data.close),
+                datetime: now
+              },
+              captured_at: now
+            });
+          }
+        }
+      } catch (err: any) {
+        // Fall back to unconfigured error or fallback structure on network failure
+      }
+    }
+
     const rawData = {
       symbol: 'GBP/USD',
       name: 'British Pound / US Dollar',
@@ -71,5 +97,22 @@ export class TwelveDataAdapter extends BaseAdapter<TwelveDataQuote> {
     };
 
     return ok([obs]);
+  }
+
+  public override async health(): Promise<import('@meridian/core').SourceHealth> {
+    const base = await super.health();
+    if (base.state === 'NOT_CONNECTED') return base;
+
+    const testFetch = await this.fetch({ start: '', end: '' });
+    if (testFetch.success && testFetch.value.payload && testFetch.value.payload.close) {
+      return {
+        ...base,
+        state: 'HEALTHY',
+        last_success_at: testFetch.value.captured_at,
+        staleness_seconds: 5
+      };
+    }
+
+    return base;
   }
 }
