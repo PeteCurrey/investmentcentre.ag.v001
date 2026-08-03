@@ -1,4 +1,7 @@
-import { Result, ok, err, Observation } from '@meridian/core';
+import { Result, ok, err, Observation, createLogger } from '@meridian/core';
+import crypto from 'crypto';
+
+const log = createLogger('Council');
 
 export interface CouncilInput {
   instrument: string;
@@ -14,7 +17,7 @@ export interface ModelOpinion {
   provider: 'anthropic' | 'openai' | 'xai';
   summary: string;
   conviction: number; // 0 to 100
-  citations: string[]; // Observation IDs
+  citations: string[]; // Validated Observation IDs
   invalidations: string[];
   agreeScore: number;
 }
@@ -43,6 +46,7 @@ export interface CouncilConsensus {
   hasDisagreement: boolean;
   adversaryResult: AdversaryAttackResult;
   tokenSpendEstUsd: number;
+  cached?: boolean;
 }
 
 export class CitationVerifier {
@@ -78,13 +82,13 @@ export class CitationVerifier {
 export class AdversaryEngine {
   /**
    * THE ADVERSARY PASS:
-   * A dedicated scheduled attack pass whose ONLY function is to attempt to demolish
-   * the platform's highest-conviction Edge positions.
+   * A dedicated attack pass whose ONLY function is to attempt to demolish
+   * the platform's candidate position using REAL observation telemetry.
    */
   public static attack(thesisTitle: string, observations: Observation[]): AdversaryAttackResult {
     const now = new Date().toISOString();
 
-    // Check if there are any critical indicators showing weakness
+    // Check if there are any critical indicators showing weakness or staleness
     const stalenessBreaches = observations.filter(o => o.staleness_seconds > 86400);
 
     if (stalenessBreaches.length > 0) {
@@ -107,13 +111,59 @@ export class AdversaryEngine {
       survived: true,
       counterArguments: [
         'Stop-loss bounds enforced by RiskGate',
-        'Multi-model consensus holds > 80% conviction',
+        'Multi-model consensus holds strong conviction',
         'No active data contradictions detected'
       ],
       attackedAt: now
     };
   }
 }
+
+// ── Cache Implementation ──────────────────────────────────────────────────────
+
+const consensusCache = new Map<string, CouncilConsensus>();
+
+export function computeInputHash(input: CouncilInput): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify({
+      instrument: input.instrument,
+      pillarContext: input.pillarContext,
+      observationsSnapshot: input.observationsSnapshot,
+      deltasSnapshot: input.deltasSnapshot,
+      thesesSnapshot: input.thesesSnapshot,
+    }))
+    .digest('hex');
+}
+
+export function clearCouncilCache(): void {
+  consensusCache.clear();
+}
+
+// ── Helper to convert raw snapshot objects to Observation ─────────────────────
+
+function parseSnapshotToObservation(o: Record<string, unknown>, idx: number): Observation {
+  return {
+    id: String(o.id || `obs_${idx}`),
+    source_id: String(o.source_id || 'unknown'),
+    entity_id: o.entity_id ? String(o.entity_id) : null,
+    pillar: (o.pillar as any) || 'MARKETS',
+    metric: String(o.metric || 'unknown.metric'),
+    value_numeric: o.value_numeric !== undefined && o.value_numeric !== null ? BigInt(String(o.value_numeric)) : null,
+    value_scale: typeof o.value_scale === 'number' ? o.value_scale : 0,
+    value_text: o.value_text ? String(o.value_text) : null,
+    unit: o.unit ? String(o.unit) : null,
+    source_timestamp: String(o.source_timestamp || new Date().toISOString()),
+    captured_at: String(o.captured_at || new Date().toISOString()),
+    staleness_seconds: typeof o.staleness_seconds === 'number' ? o.staleness_seconds : 0,
+    confidence: typeof o.confidence === 'number' ? o.confidence : 100,
+    licence_class: (o.licence_class as any) || 'INTERNAL_ONLY',
+    redistributable: Boolean(o.redistributable),
+    raw_ref: String(o.raw_ref || 'ref://local')
+  };
+}
+
+// ── Orchestrator ─────────────────────────────────────────────────────────────
 
 export class CouncilOrchestrator {
   private anthropicKey?: string;
@@ -135,86 +185,238 @@ export class CouncilOrchestrator {
   }
 
   public async evaluate(input: CouncilInput): Promise<Result<CouncilConsensus>> {
+    // 1. Check Input-Hash Cache
+    const inputHash = computeInputHash(input);
+    if (consensusCache.has(inputHash)) {
+      log.info('Returning cached Council consensus', { instrument: input.instrument, hash: inputHash });
+      const cachedResult = consensusCache.get(inputHash)!;
+      return ok({ ...cachedResult, cached: true });
+    }
+
     const opinions: ModelOpinion[] = [];
-    const validObsIds = new Set(input.observationsSnapshot.map(o => String(o.id || 'obs_1')));
+    let totalTokenCostUsd = 0;
 
-    // 1. Risk & Macro Officer (Claude / Anthropic)
-    if (this.anthropicKey || true) {
-      opinions.push({
-        role: 'RISK_MACRO_OFFICER',
-        modelName: 'claude-sonnet-4-6',
-        provider: 'anthropic',
-        summary: `Macro stance evaluated for ${input.instrument}. Central bank rates and yield curves stable. [obs_fred_1]`,
-        conviction: 85,
-        citations: Array.from(validObsIds),
-        invalidations: ['Sudden rate hike breach by Fed/BoE', 'Energy price spike > 10%'],
-        agreeScore: 90
-      });
+    const validObsIds = new Set(
+      input.observationsSnapshot.map((o, idx) => String(o.id || `obs_${idx}`))
+    );
+
+    const promptContext = `
+Instrument: ${input.instrument}
+Pillar Context: ${input.pillarContext}
+Observations (${input.observationsSnapshot.length}):
+${JSON.stringify(input.observationsSnapshot, null, 2)}
+Recent Deltas (${input.deltasSnapshot.length}):
+${JSON.stringify(input.deltasSnapshot, null, 2)}
+Active Theses (${input.thesesSnapshot.length}):
+${JSON.stringify(input.thesesSnapshot, null, 2)}
+
+Instructions:
+Evaluate this setup as an expert quantitative analyst.
+In your summary, you MUST cite specific observation IDs in brackets like [obs_id_here] whenever stating facts.
+Return a JSON object with this exact shape:
+{
+  "summary": "Analyst narrative referencing observation IDs e.g. [obs_id_123]",
+  "conviction": 85,
+  "invalidations": ["condition 1", "condition 2"],
+  "agreeScore": 90
+}
+conviction and agreeScore must be integers from 0 to 100.
+`;
+
+    // 2. Seat 1: Risk & Macro Officer (Claude / Anthropic)
+    if (this.anthropicKey) {
+      try {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': this.anthropicKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 1000,
+            messages: [{ role: 'user', content: promptContext }],
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json() as {
+            content?: { text: string }[];
+            usage?: { input_tokens: number; output_tokens: number };
+          };
+
+          const rawText = data.content?.[0]?.text || '{}';
+          const match = rawText.match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            const summaryText = String(parsed.summary || '');
+            
+            // Programmatic Citation Verification
+            const verified = CitationVerifier.verify([summaryText], validObsIds);
+
+            // Compute Token Cost ($3.00/1M input, $15.00/1M output)
+            const inputTokens = data.usage?.input_tokens || 0;
+            const outputTokens = data.usage?.output_tokens || 0;
+            const cost = (inputTokens * 0.000003) + (outputTokens * 0.000015);
+            totalTokenCostUsd += cost;
+
+            opinions.push({
+              role: 'RISK_MACRO_OFFICER',
+              modelName: 'claude-sonnet-4-6',
+              provider: 'anthropic',
+              summary: summaryText,
+              conviction: typeof parsed.conviction === 'number' ? Math.min(100, Math.max(0, parsed.conviction)) : 75,
+              citations: verified.validCitations,
+              invalidations: Array.isArray(parsed.invalidations) ? parsed.invalidations.map(String) : [],
+              agreeScore: typeof parsed.agreeScore === 'number' ? Math.min(100, Math.max(0, parsed.agreeScore)) : 80,
+            });
+          }
+        } else {
+          log.error('Anthropic API request failed', { status: res.status });
+        }
+      } catch (err: any) {
+        log.error('Anthropic API exception', { error: err.message });
+      }
     }
 
-    // 2. Portfolio Strategist (GPT / OpenAI)
-    if (this.openaiKey || true) {
-      opinions.push({
-        role: 'PORTFOLIO_STRATEGIST',
-        modelName: 'gpt-4o',
-        provider: 'openai',
-        summary: `Structure and multi-timeframe confluence confirmed for ${input.instrument}. [obs_twelve_data_1]`,
-        conviction: 80,
-        citations: Array.from(validObsIds),
-        invalidations: ['Break below key support level'],
-        agreeScore: 88
-      });
+    // 3. Seat 2: Portfolio Strategist (GPT / OpenAI)
+    if (this.openaiKey) {
+      try {
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.openaiKey}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            max_tokens: 1000,
+            messages: [{ role: 'user', content: promptContext }],
+            response_format: { type: 'json_object' }
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json() as {
+            choices?: { message?: { content?: string } }[];
+            usage?: { prompt_tokens: number; completion_tokens: number };
+          };
+
+          const rawText = data.choices?.[0]?.message?.content || '{}';
+          const match = rawText.match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            const summaryText = String(parsed.summary || '');
+            
+            const verified = CitationVerifier.verify([summaryText], validObsIds);
+
+            // Compute Token Cost ($2.50/1M input, $10.00/1M output)
+            const inputTokens = data.usage?.prompt_tokens || 0;
+            const outputTokens = data.usage?.completion_tokens || 0;
+            const cost = (inputTokens * 0.0000025) + (outputTokens * 0.000010);
+            totalTokenCostUsd += cost;
+
+            opinions.push({
+              role: 'PORTFOLIO_STRATEGIST',
+              modelName: 'gpt-4o',
+              provider: 'openai',
+              summary: summaryText,
+              conviction: typeof parsed.conviction === 'number' ? Math.min(100, Math.max(0, parsed.conviction)) : 75,
+              citations: verified.validCitations,
+              invalidations: Array.isArray(parsed.invalidations) ? parsed.invalidations.map(String) : [],
+              agreeScore: typeof parsed.agreeScore === 'number' ? Math.min(100, Math.max(0, parsed.agreeScore)) : 80,
+            });
+          }
+        } else {
+          log.error('OpenAI API request failed', { status: res.status });
+        }
+      } catch (err: any) {
+        log.error('OpenAI API exception', { error: err.message });
+      }
     }
 
-    // 3. Sentiment & Narrative Analyst (Grok / xAI)
-    if (this.xaiKey || true) {
-      opinions.push({
-        role: 'SENTIMENT_NARRATIVE_ANALYST',
-        modelName: 'grok-beta',
-        provider: 'xai',
-        summary: `Crowd chatter and narrative shift neutral to moderately bullish on ${input.instrument}. [obs_kalshi_1]`,
-        conviction: 75,
-        citations: Array.from(validObsIds),
-        invalidations: ['Retail sentiment panic spike'],
-        agreeScore: 82
-      });
+    // 4. Seat 3: Sentiment & Narrative Analyst (Grok / xAI)
+    if (this.xaiKey) {
+      try {
+        const res = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.xaiKey}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'grok-beta',
+            max_tokens: 1000,
+            messages: [{ role: 'user', content: promptContext }],
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json() as {
+            choices?: { message?: { content?: string } }[];
+            usage?: { prompt_tokens: number; completion_tokens: number };
+          };
+
+          const rawText = data.choices?.[0]?.message?.content || '{}';
+          const match = rawText.match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            const summaryText = String(parsed.summary || '');
+            
+            const verified = CitationVerifier.verify([summaryText], validObsIds);
+
+            // Compute Token Cost ($5.00/1M input, $15.00/1M output)
+            const inputTokens = data.usage?.prompt_tokens || 0;
+            const outputTokens = data.usage?.completion_tokens || 0;
+            const cost = (inputTokens * 0.000005) + (outputTokens * 0.000015);
+            totalTokenCostUsd += cost;
+
+            opinions.push({
+              role: 'SENTIMENT_NARRATIVE_ANALYST',
+              modelName: 'grok-beta',
+              provider: 'xai',
+              summary: summaryText,
+              conviction: typeof parsed.conviction === 'number' ? Math.min(100, Math.max(0, parsed.conviction)) : 75,
+              citations: verified.validCitations,
+              invalidations: Array.isArray(parsed.invalidations) ? parsed.invalidations.map(String) : [],
+              agreeScore: typeof parsed.agreeScore === 'number' ? Math.min(100, Math.max(0, parsed.agreeScore)) : 80,
+            });
+          }
+        } else {
+          log.error('xAI API request failed', { status: res.status });
+        }
+      } catch (err: any) {
+        log.error('xAI API exception', { error: err.message });
+      }
     }
 
-    // Run Adversary Attack
-    const dummyObs: Observation[] = input.observationsSnapshot.map((o, idx) => ({
-      id: String(o.id || `obs_${idx}`),
-      source_id: 'fred',
-      entity_id: null,
-      pillar: 'WORLD' as any,
-      metric: 'macro.fred.fedfunds',
-      value_numeric: 500n as any,
-      value_scale: 2,
-      value_text: '5.00',
-      unit: '%',
-      source_timestamp: new Date().toISOString(),
-      captured_at: new Date().toISOString(),
-      staleness_seconds: 100,
-      confidence: 100,
-      licence_class: 'REDISTRIBUTABLE_PUBLIC',
-      redistributable: true,
-      raw_ref: 'r2://ref'
-    }));
+    // 5. Run Adversary Pass against REAL input observations
+    const realObservations: Observation[] = input.observationsSnapshot.map(parseSnapshotToObservation);
+    const adversaryResult = AdversaryEngine.attack(`Long ${input.instrument}`, realObservations);
 
-    const adversaryResult = AdversaryEngine.attack(`Long ${input.instrument}`, dummyObs);
-
-    const hasDisagreement = opinions.some(o => Math.abs(o.conviction - 80) > 15);
+    // Compute Overall Consensus & Agreement Scores
+    const hasDisagreement = opinions.length >= 2 &&
+      opinions.some(o => Math.abs(o.conviction - opinions[0].conviction) > 15);
+      
     const avgAgreement = opinions.length > 0
       ? Math.round(opinions.reduce((acc, o) => acc + o.agreeScore, 0) / opinions.length)
       : 0;
 
-    return ok({
+    const consensus: CouncilConsensus = {
       instrument: input.instrument,
       timestamp: new Date().toISOString(),
       opinions,
       overallAgreementScore: avgAgreement,
       hasDisagreement,
       adversaryResult,
-      tokenSpendEstUsd: 0.042 // Telemetry cost tracking
-    });
+      tokenSpendEstUsd: Number(totalTokenCostUsd.toFixed(6)),
+      cached: false,
+    };
+
+    // Store in Input-Hash Cache
+    consensusCache.set(inputHash, consensus);
+
+    return ok(consensus);
   }
 }

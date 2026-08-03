@@ -1,14 +1,54 @@
-import { describe, it, expect } from 'vitest';
-import { CouncilOrchestrator, CitationVerifier, AdversaryEngine } from './index';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { CouncilOrchestrator, CitationVerifier, AdversaryEngine, clearCouncilCache, computeInputHash } from './index';
 import { Pillar, Observation, toScaledInteger } from '@meridian/core';
 
 describe('packages/council (AI Council Synthesis & The Adversary)', () => {
-  it('detects model API keys presence', () => {
+  const origAnthropic = process.env.ANTHROPIC_API_KEY;
+  const origOpenAI = process.env.OPENAI_API_KEY;
+  const origXAI = process.env.XAI_API_KEY;
+
+  beforeEach(() => {
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    clearCouncilCache();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    if (origAnthropic) process.env.ANTHROPIC_API_KEY = origAnthropic; else delete process.env.ANTHROPIC_API_KEY;
+    if (origOpenAI) process.env.OPENAI_API_KEY = origOpenAI; else delete process.env.OPENAI_API_KEY;
+    if (origXAI) process.env.XAI_API_KEY = origXAI; else delete process.env.XAI_API_KEY;
+    clearCouncilCache();
+    vi.restoreAllMocks();
+  });
+
+  it('detects model API keys presence accurately', () => {
     const orchestrator = new CouncilOrchestrator();
     const status = orchestrator.getModelStatus();
-    expect(status).toHaveProperty('anthropic_claude');
-    expect(status).toHaveProperty('openai_gpt');
-    expect(status).toHaveProperty('xai_grok');
+    expect(status).toEqual({
+      anthropic_claude: false,
+      openai_gpt: false,
+      xai_grok: false
+    });
+  });
+
+  it('reports empty opinions when no provider API keys are configured (no || true stub)', async () => {
+    const orchestrator = new CouncilOrchestrator();
+    const res = await orchestrator.evaluate({
+      instrument: 'GBP/USD',
+      pillarContext: 'MARKETS',
+      observationsSnapshot: [{ id: 'obs_1', staleness_seconds: 100 }],
+      deltasSnapshot: [],
+      thesesSnapshot: []
+    });
+
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.value.opinions).toEqual([]); // Zero opinions when unconfigured
+      expect(res.value.overallAgreementScore).toBe(0);
+      expect(res.value.adversaryResult).toBeDefined();
+    }
   });
 
   it('verifies explicit observation citations in generated claims and rejects uncited text', () => {
@@ -32,7 +72,7 @@ describe('packages/council (AI Council Synthesis & The Adversary)', () => {
     expect(resInvalid.uncitedClaims.length).toBe(1);
   });
 
-  it('runs The Adversary attack pass on candidate theses and reports survival status', () => {
+  it('runs The Adversary attack pass on real candidate observation telemetry', () => {
     const freshObs: Observation[] = [
       {
         id: 'obs_1',
@@ -70,25 +110,93 @@ describe('packages/council (AI Council Synthesis & The Adversary)', () => {
     expect(attackStale.attackVector).toMatch(/Stale Observation/);
   });
 
-  it('runs council evaluation cleanly and produces structured opinions and Adversary results', async () => {
-    process.env.ANTHROPIC_API_KEY = 'test_anthropic';
-    process.env.OPENAI_API_KEY = 'test_openai';
-    process.env.XAI_API_KEY = 'test_xai';
+  it('caches Council evaluation against sha256 input hash and returns cached result on identical inputs', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test_anthropic_key';
+
+    let fetchCount = 0;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      fetchCount++;
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{ text: JSON.stringify({
+            summary: 'Macro stance on GBP/USD solid [obs_fred_1]',
+            conviction: 88,
+            invalidations: ['Fed rate hike'],
+            agreeScore: 92
+          }) }],
+          usage: { input_tokens: 500, output_tokens: 100 }
+        })
+      };
+    }));
 
     const orchestrator = new CouncilOrchestrator();
-    const result = await orchestrator.evaluate({
+    const input = {
       instrument: 'GBP/USD',
       pillarContext: 'MARKETS',
-      observationsSnapshot: [{ id: 'obs_fred_1' }],
+      observationsSnapshot: [{ id: 'obs_fred_1', staleness_seconds: 50 }],
+      deltasSnapshot: [],
+      thesesSnapshot: []
+    };
+
+    // First evaluation: hits mock fetch API
+    const res1 = await orchestrator.evaluate(input);
+    expect(res1.success).toBe(true);
+    expect(fetchCount).toBe(1);
+    if (res1.success) {
+      expect(res1.value.cached).toBe(false);
+      expect(res1.value.opinions[0].modelName).toBe('claude-sonnet-4-6');
+      expect(res1.value.opinions[0].citations).toEqual(['obs_fred_1']);
+      // Token cost: (500 * 0.000003) + (100 * 0.000015) = 0.0015 + 0.0015 = 0.003
+      expect(res1.value.tokenSpendEstUsd).toBe(0.003);
+    }
+
+    // Second evaluation with identical inputs: hits cache
+    const res2 = await orchestrator.evaluate(input);
+    expect(res2.success).toBe(true);
+    expect(fetchCount).toBe(1); // No new fetch call made!
+    if (res2.success) {
+      expect(res2.value.cached).toBe(true);
+    }
+  });
+
+  it('computes exact token cost from multi-model usage telemetry', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test_anthropic';
+    process.env.OPENAI_API_KEY = 'test_openai';
+
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('anthropic.com')) {
+        return {
+          ok: true,
+          json: async () => ({
+            content: [{ text: JSON.stringify({ summary: 'Claude opinion [obs_1]', conviction: 85, invalidations: [], agreeScore: 90 }) }],
+            usage: { input_tokens: 1000, output_tokens: 200 } // (1000*0.000003) + (200*0.000015) = 0.003 + 0.003 = 0.006
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify({ summary: 'OpenAI opinion [obs_1]', conviction: 80, invalidations: [], agreeScore: 85 }) } }],
+          usage: { prompt_tokens: 1000, completion_tokens: 200 } // (1000*0.0000025) + (200*0.000010) = 0.0025 + 0.002 = 0.0045
+        })
+      };
+    }));
+
+    const orchestrator = new CouncilOrchestrator();
+    const res = await orchestrator.evaluate({
+      instrument: 'EUR/USD',
+      pillarContext: 'MARKETS',
+      observationsSnapshot: [{ id: 'obs_1', staleness_seconds: 10 }],
       deltasSnapshot: [],
       thesesSnapshot: []
     });
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.value.opinions.length).toBe(3);
-      expect(result.value.adversaryResult).toBeDefined();
-      expect(result.value.adversaryResult.thesisTitle).toMatch(/Long GBP\/USD/);
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.value.opinions.length).toBe(2);
+      // Total cost: 0.006 + 0.0045 = 0.0105
+      expect(res.value.tokenSpendEstUsd).toBe(0.0105);
     }
   });
 });
