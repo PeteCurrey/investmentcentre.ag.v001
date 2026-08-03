@@ -1,17 +1,32 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap');
 
+:root {
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F8FAFC;
+  --bg-card: #FFFFFF;
+  --border-color: #E2E8F0;
+  --border-subtle: #F1F5F9;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --brand-navy: #1E3A5F;
+  --brand-navy-hover: #152C4A;
+  --accent-green: #22C55E;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  border-radius: 0px !important; /* Non-negotiable sharp corners */
+  border-radius: 0px !important; /* Crisp institutional sharp corners */
 }
 
 body {
-  background-color: #FFFFFF;
-  color: #14181B;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 a {
@@ -21,9 +36,67 @@ a {
 
 button {
   cursor: pointer;
-  border: 1px solid #E4E4DF;
-  background: #FFFFFF;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
   font-family: inherit;
+  transition: all 0.15s ease-in-out;
+}
+
+/* Primary Corporate Navy Button */
+.btn-primary {
+  background-color: var(--brand-navy) !important;
+  color: #FFFFFF !important;
+  border: 1px solid var(--brand-navy) !important;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary:hover {
+  background-color: var(--brand-navy-hover) !important;
+  border-color: var(--brand-navy-hover) !important;
+}
+
+/* Secondary Corporate Outline Button */
+.btn-secondary {
+  background-color: #FFFFFF !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.btn-secondary:hover {
+  background-color: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Live Status Badge Pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50% !important;
+  background-color: var(--accent-green);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
 }
 
 /* Scrollbars */
@@ -32,8 +105,8 @@ button {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #F7F7F5;
+  background: var(--bg-secondary);
 }
 ::-webkit-scrollbar-thumb {
-  background: #E4E4DF;
+  background: var(--border-color);
 }

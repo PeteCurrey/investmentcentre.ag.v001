@@ -6,139 +6,165 @@ import Link from 'next/link';
 export default function PublicLandingPage() {
   return (
     <div style={{
-      backgroundColor: '#0A0D12',
-      color: '#E2E8F0',
+      backgroundColor: '#FFFFFF',
+      color: '#0F172A',
       minHeight: '100vh',
-      fontFamily: '"DM Mono", monospace',
-      fontSize: '12px',
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      fontSize: '14px',
       lineHeight: '1.6'
     }}>
       {/* Top Header Navigation */}
       <header style={{
-        borderBottom: '1px solid #1E293B',
-        padding: '0 32px',
-        height: '56px',
+        borderBottom: '1px solid #E2E8F0',
+        padding: '0 48px',
+        height: '64px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: '#0F172A'
+        backgroundColor: '#FFFFFF'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-          <span style={{ fontSize: '14px', fontWeight: 600, letterSpacing: '2px', color: '#F8FAFC' }}>
-            MERIDIAN // TERMINAL
-          </span>
-          <span style={{ color: '#334155' }}>|</span>
-          <span style={{ fontSize: '10px', color: '#38BDF8', letterSpacing: '1px' }}>
-            AUTONOMOUS MACRO & RISK ENGINE v2.4
+        <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '2px', color: '#0F172A' }}>
+            MERIDIAN <span style={{ color: '#64748B', fontWeight: 400, marginLeft: '6px' }}>TERMINAL</span>
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', fontSize: '11px' }}>
-          <Link href="/trade" style={{ color: '#C8F135', textDecoration: 'none', fontWeight: 600 }}>
-            TRADE DESK
+        <div style={{ display: 'flex', alignItems: 'center', gap: '28px', fontSize: '13px', color: '#475569' }}>
+          <Link href="/architecture" style={{ color: '#475569', textDecoration: 'none', fontWeight: 500 }}>
+            Architecture
           </Link>
-          <Link href="/architecture" style={{ color: '#94A3B8', textDecoration: 'none' }}>
-            ARCHITECTURE
+          <Link href="/automation" style={{ color: '#475569', textDecoration: 'none', fontWeight: 500 }}>
+            Automation
           </Link>
-          <Link href="/automation" style={{ color: '#94A3B8', textDecoration: 'none' }}>
-            AUTOMATION
+          <Link href="/trade" style={{ color: '#475569', textDecoration: 'none', fontWeight: 500 }}>
+            Trade Desk
+          </Link>
+          <Link href="/login" style={{ color: '#475569', textDecoration: 'none', fontWeight: 500 }}>
+            Sign in
           </Link>
           <Link href="/" style={{
-            padding: '6px 16px',
-            backgroundColor: '#C8F135',
-            color: '#090D16',
+            padding: '8px 18px',
+            backgroundColor: '#1E3A5F',
+            color: '#FFFFFF',
             textDecoration: 'none',
             fontWeight: 600,
-            letterSpacing: '1px',
-            border: '1px solid #A3E635'
+            fontSize: '13px',
+            border: '1px solid #1E3A5F'
           }}>
-            ENTER CONSOLE →
+            Enter Console →
           </Link>
         </div>
       </header>
 
       {/* Hero Section */}
       <section style={{
-        padding: '80px 32px',
-        maxWidth: '1200px',
-        margin: '0 auto',
-        borderBottom: '1px solid #1E293B'
+        padding: '96px 48px 64px 48px',
+        maxWidth: '1280px',
+        margin: '0 auto'
       }}>
-        <div style={{ fontSize: '11px', color: '#C8F135', letterSpacing: '2px', marginBottom: '16px' }}>
-          [INSTITUTIONAL INTELLIGENCE & DETERMINISTIC RISK ROUTING]
+        {/* Status Badge Pill */}
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '6px 14px',
+          backgroundColor: '#F1F5F9',
+          border: '1px solid #E2E8F0',
+          fontFamily: '"DM Mono", monospace',
+          fontSize: '11px',
+          color: '#64748B',
+          letterSpacing: '0.5px',
+          marginBottom: '32px',
+          textTransform: 'uppercase'
+        }}>
+          <span style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            backgroundColor: '#22C55E',
+            display: 'inline-block'
+          }} />
+          LIVE INTELLIGENCE FEED &nbsp;•&nbsp; 18 FEEDS ACTIVE
         </div>
+
         <h1 style={{
-          fontSize: '36px',
-          fontWeight: 400,
-          color: '#F8FAFC',
-          letterSpacing: '-1px',
-          lineHeight: '1.2',
-          maxWidth: '800px',
+          fontSize: '44px',
+          fontWeight: 700,
+          color: '#0F172A',
+          letterSpacing: '-1.2px',
+          lineHeight: '1.15',
+          maxWidth: '820px',
           marginBottom: '24px'
         }}>
-          Cross-Asset Macro Synthesis & Falsification-Gated Execution
+          Market intelligence for institutional participants.
         </h1>
+
         <p style={{
-          fontSize: '14px',
-          color: '#94A3B8',
-          maxWidth: '680px',
-          marginBottom: '36px',
-          lineHeight: '1.7'
+          fontSize: '16px',
+          color: '#475569',
+          maxWidth: '640px',
+          marginBottom: '40px',
+          lineHeight: '1.65'
         }}>
-          Meridian continuously ingests macro feeds, central bank signals, SEC filings, and alternative dataset joins. Every market delta is evaluated against active investment theses, ranked by explicit salience scoring, and gated through cryptographic HMAC risk tokens before broker execution.
+          Multi-source signal scoring and AI consensus analysis across Forex, Indices, Commodities and Crypto. Built for professional traders, proprietary desks, and sophisticated investors who require precision over noise.
         </p>
 
-        <div style={{ display: 'flex', gap: '16px' }}>
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '80px' }}>
           <Link href="/" style={{
-            padding: '12px 24px',
-            backgroundColor: '#C8F135',
-            color: '#090D16',
+            padding: '12px 26px',
+            backgroundColor: '#1E3A5F',
+            color: '#FFFFFF',
             textDecoration: 'none',
             fontWeight: 600,
-            letterSpacing: '1px',
-            border: '1px solid #A3E635'
+            fontSize: '14px',
+            border: '1px solid #1E3A5F'
           }}>
-            LAUNCH CONSOLE SURFACES
+            Launch Console Surfaces
           </Link>
           <Link href="/architecture" style={{
-            padding: '12px 24px',
-            backgroundColor: 'transparent',
-            color: '#F8FAFC',
+            padding: '12px 26px',
+            backgroundColor: '#FFFFFF',
+            color: '#334155',
             textDecoration: 'none',
-            fontWeight: 400,
-            letterSpacing: '1px',
-            border: '1px solid #334155'
+            fontWeight: 500,
+            fontSize: '14px',
+            border: '1px solid #E2E8F0'
           }}>
-            SYSTEM SPECIFICATION
+            System Specification
           </Link>
         </div>
-      </section>
 
-      {/* Live Operational Metrics HUD */}
-      <section style={{ borderBottom: '1px solid #1E293B', backgroundColor: '#0F172A' }}>
+        {/* 4-Column Institutional Metric Grid (matching screenshot) */}
         <div style={{
-          maxWidth: '1200px',
-          margin: '0 auto',
+          border: '1px solid #E2E8F0',
+          backgroundColor: '#FFFFFF',
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(4, 1fr)'
         }}>
           {[
-            { label: 'INGESTION FEEDS', val: '18 REAL-TIME', sub: 'FRED, EIA, SEC, FCA, TwelveData' },
-            { label: 'DELTAS EVALUATED (24H)', val: '1,420 METRICS', sub: 'Deterministic Salience Pipeline' },
-            { label: 'COUNCIL SYNTHESIS', val: '3 AI MODELS', sub: 'Claude 3.5, GPT-4o, Grok-2' },
-            { label: 'BROKER ADAPTER', val: 'OANDA v20 ACTIVE', sub: 'HMAC RiskToken Protected' }
-          ].map((m, i) => (
-            <div key={i} style={{
-              padding: '24px 32px',
-              borderRight: i < 3 ? '1px solid #1E293B' : 'none'
+            { metric: '18', label: 'Ingestion Feeds Active', sub: 'FRED, EIA, SEC, FCA, TwelveData' },
+            { metric: '1,420', label: 'Deltas Evaluated (24h)', sub: 'Deterministic Salience Pipeline' },
+            { metric: '3', label: 'AI Models in Consensus', sub: 'Claude, GPT-4o, Grok-2' },
+            { metric: 'A+ - D', label: 'Risk Grade Scale', sub: 'HMAC RiskToken Protected' }
+          ].map((m, idx) => (
+            <div key={idx} style={{
+              padding: '28px 32px',
+              borderRight: idx < 3 ? '1px solid #E2E8F0' : 'none'
             }}>
-              <div style={{ fontSize: '10px', color: '#64748B', letterSpacing: '1px', marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '28px',
+                fontWeight: 600,
+                color: '#0F172A',
+                fontFamily: '"DM Mono", monospace',
+                letterSpacing: '-0.5px',
+                marginBottom: '8px'
+              }}>
+                {m.metric}
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: 500, color: '#64748B', marginBottom: '4px' }}>
                 {m.label}
               </div>
-              <div style={{ fontSize: '16px', color: '#F8FAFC', fontWeight: 500, marginBottom: '4px' }}>
-                {m.val}
-              </div>
-              <div style={{ fontSize: '10px', color: '#94A3B8' }}>
+              <div style={{ fontSize: '11px', color: '#94A3B8' }}>
                 {m.sub}
               </div>
             </div>
@@ -147,86 +173,94 @@ export default function PublicLandingPage() {
       </section>
 
       {/* Core Architecture Matrix */}
-      <section style={{ padding: '80px 32px', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ fontSize: '11px', color: '#64748B', letterSpacing: '2px', marginBottom: '12px' }}>
-          SYSTEM PIPELINE & 4-TIER ESCALATION MODEL
-        </div>
-        <h2 style={{ fontSize: '24px', fontWeight: 400, color: '#F8FAFC', marginBottom: '48px' }}>
-          End-to-End Autonomous Intelligence Flow
-        </h2>
+      <section style={{
+        padding: '80px 48px',
+        backgroundColor: '#F8FAFC',
+        borderTop: '1px solid #E2E8F0',
+        borderBottom: '1px solid #E2E8F0'
+      }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#1E3A5F', letterSpacing: '1.5px', marginBottom: '12px', textTransform: 'uppercase' }}>
+            SYSTEM PIPELINE & 4-TIER ESCALATION MODEL
+          </div>
+          <h2 style={{ fontSize: '28px', fontWeight: 700, color: '#0F172A', marginBottom: '48px', letterSpacing: '-0.5px' }}>
+            End-to-End Autonomous Intelligence Flow
+          </h2>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-          {[
-            {
-              tier: 'TIER 1 — WATCH',
-              color: '#38BDF8',
-              title: 'Continuous Observation',
-              desc: 'Monitors raw data streams across macroeconomic releases, Treasury fiscal reports, EIA inventory stock draws, and disclosed UK FCA net short positions.'
-            },
-            {
-              tier: 'TIER 2 — RESEARCH',
-              color: '#FACC15',
-              title: 'Council Deep Synthesis',
-              desc: 'Multi-LLM consensus (Claude, GPT-4o, Grok) cross-references anomalies against historical cycles, SEC Form 4 insider trades, and government contract awards.'
-            },
-            {
-              tier: 'TIER 3 — PREPARE',
-              color: '#FB923C',
-              title: 'Thesis Falsification Check',
-              desc: 'Drafts explicit OrderIntent parameters. Validates stop loss targets and verifies that mandatory falsification criteria are intact before staging.'
-            },
-            {
-              tier: 'TIER 4 — EXECUTE',
-              color: '#C8F135',
-              title: 'RiskGate & Broker Route',
-              desc: 'Generates cryptographically signed ApprovalToken. Passes security checks and routes execution payload to Oanda v20 REST endpoints.'
-            }
-          ].map((t, i) => (
-            <div key={i} style={{
-              border: '1px solid #1E293B',
-              backgroundColor: '#0F172A',
-              padding: '24px',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between'
-            }}>
-              <div>
-                <div style={{
-                  fontSize: '10px',
-                  color: t.color,
-                  letterSpacing: '1px',
-                  marginBottom: '12px',
-                  borderBottom: `1px solid ${t.color}33`,
-                  paddingBottom: '6px'
-                }}>
-                  {t.tier}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
+            {[
+              {
+                tier: 'TIER 1 — WATCH',
+                color: '#1E3A5F',
+                title: 'Continuous Observation',
+                desc: 'Monitors raw data streams across macroeconomic releases, Treasury fiscal reports, EIA inventory stock draws, and disclosed UK FCA net short positions.'
+              },
+              {
+                tier: 'TIER 2 — RESEARCH',
+                color: '#1E3A5F',
+                title: 'Council Deep Synthesis',
+                desc: 'Multi-LLM consensus (Claude, GPT-4o, Grok) cross-references anomalies against historical cycles, SEC Form 4 insider trades, and government contract awards.'
+              },
+              {
+                tier: 'TIER 3 — PREPARE',
+                color: '#1E3A5F',
+                title: 'Thesis Falsification Check',
+                desc: 'Drafts explicit OrderIntent parameters. Validates stop loss targets and verifies that mandatory falsification criteria are intact before staging.'
+              },
+              {
+                tier: 'TIER 4 — EXECUTE',
+                color: '#1E3A5F',
+                title: 'RiskGate & Broker Route',
+                desc: 'Generates cryptographically signed ApprovalToken. Passes security checks and routes execution payload to Oanda v20 REST endpoints.'
+              }
+            ].map((t, i) => (
+              <div key={i} style={{
+                border: '1px solid #E2E8F0',
+                backgroundColor: '#FFFFFF',
+                padding: '28px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}>
+                <div>
+                  <div style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: t.color,
+                    letterSpacing: '1px',
+                    marginBottom: '16px',
+                    borderBottom: '1px solid #E2E8F0',
+                    paddingBottom: '8px'
+                  }}>
+                    {t.tier}
+                  </div>
+                  <div style={{ fontSize: '16px', color: '#0F172A', fontWeight: 600, marginBottom: '12px' }}>
+                    {t.title}
+                  </div>
+                  <p style={{ fontSize: '13px', color: '#475569', lineHeight: '1.6', margin: 0 }}>
+                    {t.desc}
+                  </p>
                 </div>
-                <div style={{ fontSize: '15px', color: '#F8FAFC', fontWeight: 500, marginBottom: '12px' }}>
-                  {t.title}
+                <div style={{ marginTop: '28px', fontSize: '11px', fontWeight: 600, color: '#64748B', letterSpacing: '0.5px', fontFamily: '"DM Mono", monospace' }}>
+                  STATUS: ENFORCED
                 </div>
-                <p style={{ fontSize: '11px', color: '#94A3B8', lineHeight: '1.6', margin: 0 }}>
-                  {t.desc}
-                </p>
               </div>
-              <div style={{ marginTop: '24px', fontSize: '10px', color: '#475569', letterSpacing: '1px' }}>
-                STATUS: ENFORCED
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
       {/* 8-Pillar Coverage Matrix */}
-      <section style={{ borderTop: '1px solid #1E293B', padding: '80px 32px', backgroundColor: '#0F172A' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-          <div style={{ fontSize: '11px', color: '#64748B', letterSpacing: '2px', marginBottom: '12px' }}>
+      <section style={{ padding: '80px 48px', backgroundColor: '#FFFFFF' }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#1E3A5F', letterSpacing: '1.5px', marginBottom: '12px', textTransform: 'uppercase' }}>
             INTELLIGENCE COVERAGE
           </div>
-          <h2 style={{ fontSize: '24px', fontWeight: 400, color: '#F8FAFC', marginBottom: '40px' }}>
+          <h2 style={{ fontSize: '28px', fontWeight: 700, color: '#0F172A', marginBottom: '40px', letterSpacing: '-0.5px' }}>
             The 8 Pillars of Cross-Asset Context
           </h2>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
             {[
               { num: 'PILLAR I', name: 'THE WORLD', detail: 'Global macro indicators, FRED fed funds rate, US public debt, EIA crude oil inventories.' },
               { num: 'PILLAR II', name: 'THE MARKETS', detail: 'Real-time multi-asset spot breadth (GBP/USD, EUR/USD, WTI), CFTC COT, FCA UK net short registers.' },
@@ -238,17 +272,26 @@ export default function PublicLandingPage() {
               { num: 'PILLAR VIII', name: 'AUTOMATION & RISK', detail: 'Deterministic 4-tier escalation model, RiskGate HMAC token signing, and Oanda broker execution.' },
             ].map((p, i) => (
               <div key={i} style={{
-                border: '1px solid #1E293B',
-                backgroundColor: '#0A0D12',
-                padding: '20px',
+                border: '1px solid #E2E8F0',
+                backgroundColor: '#F8FAFC',
+                padding: '24px',
                 display: 'flex',
                 alignItems: 'flex-start',
-                gap: '16px'
+                gap: '20px'
               }}>
-                <span style={{ fontSize: '10px', color: '#C8F135', letterSpacing: '1px', paddingTop: '2px' }}>{p.num}</span>
+                <span style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: '#1E3A5F',
+                  fontFamily: '"DM Mono", monospace',
+                  letterSpacing: '1px',
+                  paddingTop: '2px'
+                }}>
+                  {p.num}
+                </span>
                 <div>
-                  <div style={{ fontSize: '13px', color: '#F8FAFC', fontWeight: 500, marginBottom: '4px' }}>{p.name}</div>
-                  <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: '1.5' }}>{p.detail}</div>
+                  <div style={{ fontSize: '15px', color: '#0F172A', fontWeight: 600, marginBottom: '6px' }}>{p.name}</div>
+                  <div style={{ fontSize: '13px', color: '#475569', lineHeight: '1.6' }}>{p.detail}</div>
                 </div>
               </div>
             ))}
@@ -258,21 +301,25 @@ export default function PublicLandingPage() {
 
       {/* Footer */}
       <footer style={{
-        borderTop: '1px solid #1E293B',
-        padding: '32px',
-        maxWidth: '1200px',
-        margin: '0 auto',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        fontSize: '10px',
-        color: '#64748B'
+        borderTop: '1px solid #E2E8F0',
+        padding: '36px 48px',
+        backgroundColor: '#FFFFFF'
       }}>
-        <div>MERIDIAN INVESTMENT CENTRE // PRIVATELY DEPLOYED SYSTEM</div>
-        <div style={{ display: 'flex', gap: '20px' }}>
-          <Link href="/" style={{ color: '#94A3B8', textDecoration: 'none' }}>THE BRIEF</Link>
-          <Link href="/automation" style={{ color: '#94A3B8', textDecoration: 'none' }}>AUTOMATION</Link>
-          <Link href="/architecture" style={{ color: '#94A3B8', textDecoration: 'none' }}>SPECIFICATION</Link>
+        <div style={{
+          maxWidth: '1280px',
+          margin: '0 auto',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontSize: '12px',
+          color: '#64748B'
+        }}>
+          <div>MERIDIAN INVESTMENT CENTRE &nbsp;•&nbsp; INSTITUTIONAL SYSTEM</div>
+          <div style={{ display: 'flex', gap: '24px' }}>
+            <Link href="/" style={{ color: '#475569', textDecoration: 'none', fontWeight: 500 }}>THE BRIEF</Link>
+            <Link href="/automation" style={{ color: '#475569', textDecoration: 'none', fontWeight: 500 }}>AUTOMATION</Link>
+            <Link href="/architecture" style={{ color: '#475569', textDecoration: 'none', fontWeight: 500 }}>SPECIFICATION</Link>
+          </div>
         </div>
       </footer>
     </div>
