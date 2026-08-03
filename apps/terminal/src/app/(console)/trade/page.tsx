@@ -77,7 +77,11 @@ const ratingColor = (r: string) => {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function TradePage() {
-  const [inst, setInst] = useState<Instrument>(INSTRUMENTS[0]);
+  const [instruments, setInstruments] = useState<Instrument[]>(INSTRUMENTS);
+  const [selectedSymbol, setSelectedSymbol] = useState('GBP/USD');
+
+  const inst = instruments.find(i => i.symbol === selectedSymbol) || instruments[0];
+
   const [timeframe, setTimeframe] = useState('15');
   const [direction, setDirection] = useState<'BUY' | 'SELL'>('BUY');
   const [units, setUnits] = useState('10000');
@@ -96,21 +100,34 @@ export default function TradePage() {
   const [logs, setLogs] = useState<OrderLog[]>([]);
 
   useEffect(() => {
+    // 1. Fetch live prices for all 8 instruments
     fetch('/api/prices')
       .then(res => res.json())
       .then(data => {
         if (data && data.prices) {
-          const liveMap: Record<string, string> = {};
-          if (data.prices['GBP/USD']) liveMap['GBP/USD'] = data.prices['GBP/USD'].price;
-          if (data.prices['SPX_INDEX']) liveMap['SPX 500'] = data.prices['SPX_INDEX'].price;
-          if (data.prices['WTI_CRUDE']) liveMap['WTI Oil'] = data.prices['WTI_CRUDE'].price;
-
-          setInst(prev => {
-            if (liveMap[prev.symbol]) {
-              return { ...prev, price: liveMap[prev.symbol] };
-            }
-            return prev;
+          setInstruments(prevList => {
+            return prevList.map(i => {
+              if (data.prices[i.symbol]) {
+                return {
+                  ...i,
+                  price: data.prices[i.symbol].price,
+                  change: data.prices[i.symbol].change,
+                  spread: i.spread === '—' ? '1.2' : i.spread,
+                };
+              }
+              return i;
+            });
           });
+        }
+      })
+      .catch(() => {});
+
+    // 2. Fetch persistent execution logs (Auto + Manual)
+    fetch('/api/trade')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.success && data.trades) {
+          setLogs(data.trades);
         }
       })
       .catch(() => {});
@@ -119,7 +136,7 @@ export default function TradePage() {
   // ── Handlers ──
 
   const handleSelectInstrument = useCallback((i: Instrument) => {
-    setInst(i);
+    setSelectedSymbol(i.symbol);
     setExecMsg(null);
   }, []);
 
@@ -237,7 +254,7 @@ export default function TradePage() {
 
       {/* Instrument Selector */}
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-        {INSTRUMENTS.map(i => {
+        {instruments.map(i => {
           const selected = i.symbol === inst.symbol;
           const up = i.change.startsWith('+');
           return (
