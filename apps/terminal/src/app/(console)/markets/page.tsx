@@ -1,16 +1,43 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Value } from '../../../components/Value';
 
 export default function MarketsPage() {
-  const prices = [
+  const [livePrices, setLivePrices] = useState<Record<string, { price: string; change: string; source: string; age: number }>>({});
+
+  useEffect(() => {
+    fetch('/api/prices')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.prices) {
+          setLivePrices(data.prices);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const defaultPrices = [
     { id: 'mkt_gbpusd', symbol: 'GBP/USD', name: 'British Pound / US Dollar', price: '—', change: '—', source: 'twelve_data', age: 0, bias: 'NEUTRAL' as const, note: 'Range-bound 1.295–1.328. FOMC catalyst.' },
     { id: 'mkt_eurusd', symbol: 'EUR/USD', name: 'Euro / US Dollar', price: '—', change: '—', source: 'twelve_data', age: 0, bias: 'BEARISH' as const, note: 'USD strength on delayed cut cycle.' },
     { id: 'mkt_wti', symbol: 'WTI_CRUDE', name: 'WTI Light Sweet Crude', price: '—', change: '—', source: 'twelve_data', age: 0, bias: 'BULLISH' as const, note: 'EIA draw -3.4M bbl vs +1.2M consensus.' },
     { id: 'mkt_spx', symbol: 'SPX_INDEX', name: 'S&P 500 Index', price: '—', change: '—', source: 'finnhub', age: 0, bias: 'NEUTRAL' as const, note: 'Earnings season support. Fed rate sensitivity.' },
   ];
+
+  const prices = defaultPrices.map(p => {
+    const live = livePrices[p.symbol];
+    if (live) {
+      return {
+        ...p,
+        price: live.price,
+        change: live.change,
+        source: live.source,
+        age: live.age
+      };
+    }
+    return p;
+  });
 
   // DEMO DATA: The fca_short_positions adapter has a real schema, validate(), and normalise()
   // pipeline, but its fetch() returns a hardcoded object — it never calls the FCA register.

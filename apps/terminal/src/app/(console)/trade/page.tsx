@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import TradingViewChart from '../../../components/TradingViewChart';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -94,6 +94,27 @@ export default function TradePage() {
   const [aiError, setAiError] = useState<string | null>(null);
 
   const [logs, setLogs] = useState<OrderLog[]>([]);
+
+  useEffect(() => {
+    fetch('/api/prices')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.prices) {
+          const liveMap: Record<string, string> = {};
+          if (data.prices['GBP/USD']) liveMap['GBP/USD'] = data.prices['GBP/USD'].price;
+          if (data.prices['SPX_INDEX']) liveMap['SPX 500'] = data.prices['SPX_INDEX'].price;
+          if (data.prices['WTI_CRUDE']) liveMap['WTI Oil'] = data.prices['WTI_CRUDE'].price;
+
+          setInst(prev => {
+            if (liveMap[prev.symbol]) {
+              return { ...prev, price: liveMap[prev.symbol] };
+            }
+            return prev;
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // ── Handlers ──
 
