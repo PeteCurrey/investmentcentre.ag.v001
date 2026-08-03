@@ -28,8 +28,8 @@ export class TwelveDataAdapter extends BaseAdapter<TwelveDataQuote> {
       try {
         const res = await fetch(`https://api.twelvedata.com/quote?symbol=GBP/USD&apikey=${apiKey}`);
         if (res.ok) {
-          const data = await res.json();
-          if (data.close) {
+          const data = (await res.json()) as Record<string, any>;
+          if (data && data.close) {
             return ok({
               source_id: this.sourceId,
               ref: `r2://meridian-archive/twelve_data/GBP_USD/${now}.json`,
@@ -104,7 +104,8 @@ export class TwelveDataAdapter extends BaseAdapter<TwelveDataQuote> {
     if (base.state === 'NOT_CONNECTED') return base;
 
     const testFetch = await this.fetch({ start: '', end: '' });
-    if (testFetch.success && testFetch.value.payload && testFetch.value.payload.close) {
+    const payload = testFetch.success ? (testFetch.value.payload as Record<string, any>) : null;
+    if (testFetch.success && payload && payload.close) {
       return {
         ...base,
         state: 'HEALTHY',

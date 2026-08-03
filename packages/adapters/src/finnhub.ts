@@ -32,7 +32,7 @@ export class FinnhubAdapter extends BaseAdapter<FinnhubQuote> {
       try {
         const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${apiKey}`);
         if (res.ok) {
-          const data = await res.json();
+          const data = (await res.json()) as Record<string, any>;
           if (data && typeof data.c === 'number' && data.c > 0) {
             return ok({
               source_id: this.sourceId,
@@ -116,7 +116,8 @@ export class FinnhubAdapter extends BaseAdapter<FinnhubQuote> {
     if (base.state === 'NOT_CONNECTED') return base;
 
     const testFetch = await this.fetch({ start: '', end: '' });
-    if (testFetch.success && testFetch.value.payload && typeof testFetch.value.payload.c === 'number') {
+    const payload = testFetch.success ? (testFetch.value.payload as Record<string, any>) : null;
+    if (testFetch.success && payload && typeof payload.c === 'number') {
       return {
         ...base,
         state: 'HEALTHY',
