@@ -17,7 +17,7 @@ async function handleLogin(formData: FormData) {
       sameSite: 'strict',
       maxAge: 86400, // 24 hours
     });
-    redirect('/');
+    redirect('/brief');
   } else {
     redirect('/login?error=invalid_credentials');
   }
