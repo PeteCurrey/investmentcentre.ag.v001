@@ -5,7 +5,7 @@ import { Observation, createLogger } from '@meridian/core';
 
 const log = createLogger('IngestionEngine');
 
-const mode = process.env.TIER_4_ENABLED === 'true' ? 'EXECUTE' : 'OBSERVE';
+const mode = (process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true' || process.env.TIER_4_ENABLED === 'true') ? 'EXECUTE' : 'OBSERVE';
 
 log.info('MERIDIAN Ingestion Daemon & Contradiction Engine v1.0 started', {
   registrySize: WAVE_1_REGISTRY.length,

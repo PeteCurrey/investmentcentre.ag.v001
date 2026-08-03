@@ -4,10 +4,10 @@ export async function POST(request: Request) {
   const body = await request.json() as { instrument: string; direction: 'BUY' | 'SELL'; units: string; stopLoss?: string; takeProfit?: string; orderType: 'MARKET' | 'LIMIT'; limitPrice?: string };
   const { instrument, direction, units, stopLoss, takeProfit, orderType, limitPrice } = body;
 
-  const tier4Enabled = process.env.TIER_4_ENABLED === 'true';
+  const tier4Enabled = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true' || process.env.TIER_4_ENABLED === 'true';
   if (!tier4Enabled) {
     return NextResponse.json(
-      { error: 'TIER_4_DISABLED: Live execution is config-disabled. Set TIER_4_ENABLED=true in .env.local.' },
+      { error: 'TIER_4_DISABLED: Live execution is config-disabled. Set NEXT_PUBLIC_TIER_4_ENABLED=true or TIER_4_ENABLED=true in environment.' },
       { status: 403 }
     );
   }
