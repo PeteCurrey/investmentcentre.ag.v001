@@ -13,7 +13,7 @@ export class UnbuiltAdapter extends BaseAdapter {
     super(sourceId);
   }
 
-  public async fetch(_window?: TimeWindow): Promise<Result<RawPayload>> {
+  public async fetch(_window: TimeWindow): Promise<Result<RawPayload>> {
     return err(new Error(`Adapter '${this.sourceId}' is not yet implemented (unbuilt in current wave). State: NOT_CONNECTED.`));
   }
 

@@ -63,7 +63,7 @@ describe('packages/adapters (Phase 1 Ingestion Adapters)', () => {
       expect(adapter.sourceId).toBe(id);
       const health = await adapter.health();
       expect(health.state).toBe('NOT_CONNECTED');
-      const fetchRes = await adapter.fetch();
+      const fetchRes = await adapter.fetch({ start: '2026-08-01T00:00:00Z', end: '2026-08-02T00:00:00Z' });
       expect(fetchRes.success).toBe(false);
     }
   });
