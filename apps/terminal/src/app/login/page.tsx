@@ -37,43 +37,49 @@ export default async function LoginPage({
       minHeight: '100vh',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#FFFFFF',
-      fontFamily: 'Inter, sans-serif'
+      backgroundColor: '#F8FAFC',
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     }}>
       <div style={{
-        width: '360px',
-        border: '1px solid #E4E4DF',
-        padding: '32px',
+        width: '400px',
+        border: '1px solid #E2E8F0',
+        padding: '40px',
         backgroundColor: '#FFFFFF'
       }}>
-        <div style={{
-          fontFamily: '"DM Mono", monospace',
-          fontSize: '11px',
-          color: '#6B7280',
-          marginBottom: '8px',
-          letterSpacing: '1px'
-        }}>
-          MERIDIAN // MASTER CONSOLE
+        {/* Logo / Brand */}
+        <div style={{ marginBottom: '32px' }}>
+          <div style={{
+            fontFamily: '"DM Mono", monospace',
+            fontSize: '11px',
+            color: '#64748B',
+            marginBottom: '10px',
+            letterSpacing: '2px',
+            textTransform: 'uppercase'
+          }}>
+            MERIDIAN &nbsp;•&nbsp; MASTER CONSOLE
+          </div>
+          <h1 style={{
+            fontSize: '22px',
+            fontWeight: 700,
+            color: '#0F172A',
+            letterSpacing: '-0.5px'
+          }}>
+            Operator Authentication
+          </h1>
+          <p style={{ fontSize: '13px', color: '#64748B', marginTop: '8px', lineHeight: '1.5' }}>
+            Enter your console access code to proceed.
+          </p>
         </div>
-        <h1 style={{
-          fontSize: '20px',
-          fontWeight: 700,
-          color: '#14181B',
-          marginBottom: '24px',
-          letterSpacing: '-0.5px'
-        }}>
-          Gatekeeper Authentication
-        </h1>
 
-        <form action={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <form action={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label htmlFor="password" style={{
-              fontSize: '11px',
+              fontSize: '12px',
               fontWeight: 600,
-              color: '#14181B',
-              fontFamily: '"DM Mono", monospace'
+              color: '#0F172A',
+              letterSpacing: '0.3px'
             }}>
-              CONSOLE ACCESS CODE:
+              Console Access Code
             </label>
             <input
               type="password"
@@ -82,24 +88,25 @@ export default async function LoginPage({
               required
               autoFocus
               style={{
-                padding: '8px 12px',
-                border: '1px solid #E4E4DF',
+                padding: '10px 14px',
+                border: '1px solid #E2E8F0',
                 fontFamily: '"DM Mono", monospace',
                 fontSize: '14px',
-                color: '#14181B',
+                color: '#0F172A',
                 outline: 'none',
-                backgroundColor: '#F7F7F5'
+                backgroundColor: '#F8FAFC',
+                width: '100%'
               }}
             />
           </div>
 
           {error && (
             <div style={{
-              fontSize: '12px',
+              fontSize: '13px',
               color: '#DC2626',
               fontFamily: '"DM Mono", monospace',
               border: '1px solid #FCA5A5',
-              padding: '8px',
+              padding: '10px 14px',
               backgroundColor: '#FEF2F2'
             }}>
               AUTHENTICATION FAILED: ACCESS CODE INVALID
@@ -109,25 +116,24 @@ export default async function LoginPage({
           <button
             type="submit"
             style={{
-              backgroundColor: '#1C3A5E',
+              backgroundColor: '#1E3A5F',
               color: '#FFFFFF',
               border: 'none',
-              padding: '10px',
+              padding: '12px',
               fontWeight: 600,
-              fontSize: '12px',
-              fontFamily: '"DM Mono", monospace',
+              fontSize: '13px',
+              fontFamily: 'Inter, sans-serif',
               cursor: 'pointer',
-              marginTop: '8px',
-              textAlign: 'center'
+              letterSpacing: '0.3px'
             }}
           >
-            VERIFY KEY & DECRYPT
+            Sign In to Console
           </button>
         </form>
 
-        <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '11px', fontFamily: '"DM Mono", monospace' }}>
-          <a href="/landing" style={{ color: '#6B7280', textDecoration: 'none' }}>
-            ← VIEW PUBLIC PRODUCT OVERVIEW
+        <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '12px', borderTop: '1px solid #E2E8F0', paddingTop: '20px' }}>
+          <a href="/landing" style={{ color: '#64748B', textDecoration: 'none', fontWeight: 500 }}>
+            ← View Product Overview
           </a>
         </div>
       </div>
