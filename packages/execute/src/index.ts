@@ -1,4 +1,4 @@
-import { Result, ok, err, ScaledInteger } from '@meridian/core';
+import { Result, ok, err, ScaledInteger, Price } from '@meridian/core';
 import { OrderIntent, ApprovalToken, RiskGate } from '@meridian/risk';
 
 export * from './oanda';
@@ -7,10 +7,10 @@ export interface BrokerPosition {
   id: string;
   instrument: string;
   units: ScaledInteger;
-  entryPrice: ScaledInteger;
+  entryPrice: Price;
   /** Not sourced from the positions endpoint (requires a separate orders call). undefined means unknown — callers must NOT assume a position with undefined stopLossPrice is protected. */
-  stopLossPrice?: ScaledInteger;
-  unrealizedPnl: ScaledInteger;
+  stopLossPrice?: Price;
+  unrealizedPnl: Price;
   openedAt: string;
   /** Provenance: which adapter/endpoint produced this record */
   source: string;
@@ -20,9 +20,9 @@ export interface BrokerPosition {
 
 export interface BrokerAccountState {
   accountId: string;
-  balance: ScaledInteger;
-  equity: ScaledInteger;
-  unrealizedPnl: ScaledInteger;
+  balance: Price;
+  equity: Price;
+  unrealizedPnl: Price;
   openPositionsCount: number;
   currency: string;
   /** Provenance: which adapter/endpoint produced this record */
@@ -37,7 +37,7 @@ export interface BrokerOrder {
   instrument: string;
   status: 'SUBMITTED' | 'FILLED' | 'CANCELLED' | 'REJECTED';
   units: ScaledInteger;
-  fillPrice?: ScaledInteger;
+  fillPrice?: Price;
   submittedAt: string;
 }
 
@@ -68,7 +68,7 @@ export class PaperBroker implements BrokerAdapter {
       instrument: intent.instrument,
       status: 'FILLED',
       units: intent.units,
-      fillPrice: intent.stopLossPrice.price, // Simulated execution
+      fillPrice: intent.stopLossPrice, // Simulated execution carrying full Price structure
       submittedAt: new Date().toISOString()
     };
 
@@ -95,9 +95,9 @@ export class PaperBroker implements BrokerAdapter {
     // standing in for real data — they are the paper account's defined starting state.
     return ok({
       accountId,
-      balance: 10000000n as ScaledInteger,   // Paper starting balance: $100,000.00 (scale 2)
-      equity: 10000000n as ScaledInteger,    // Paper starting equity: $100,000.00 (scale 2)
-      unrealizedPnl: 0n as ScaledInteger,
+      balance: { price: 10000000n as ScaledInteger, scale: 2, currency: 'USD' },   // Paper starting balance: $100,000.00 (scale 2)
+      equity: { price: 10000000n as ScaledInteger, scale: 2, currency: 'USD' },    // Paper starting equity: $100,000.00 (scale 2)
+      unrealizedPnl: { price: 0n as ScaledInteger, scale: 2, currency: 'USD' },
       openPositionsCount: this.positions.size,
       currency: 'USD',
       source: 'paper',

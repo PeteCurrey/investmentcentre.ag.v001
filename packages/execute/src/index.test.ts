@@ -223,11 +223,11 @@ describe('packages/execute (OandaBrokerAdapter & Security/Safety Boundary)', () 
     const res = await oanda.submitOrder(intent, decision.token!);
     expect(res.success).toBe(true);
     if (res.success) {
-      expect(res.value.fillPrice).toBe(131456n);
+      expect(res.value.fillPrice).toEqual({ price: 131456n, scale: 5, currency: 'USD' });
     }
   });
 
-  it('applies half-up rounding when OANDA returns 5-decimal position pricing against target scale 4', async () => {
+  it('preserves native scale precision on entryPrice and applies scale 2 to unrealized PnL', async () => {
     const oanda = new OandaBrokerAdapter({ apiKey: 'test_api_key_123', accountId: '101-001-123456-001', environment: 'practice' });
 
     // Mock OANDA returning 5-decimal entry price "1.31456" and 3-decimal unrealized PnL "50.005"
@@ -245,10 +245,10 @@ describe('packages/execute (OandaBrokerAdapter & Security/Safety Boundary)', () 
     const posRes = await oanda.getPositions('101-001-123456-001');
     expect(posRes.success).toBe(true);
     if (posRes.success) {
-      // 1.31456 rounded half-up to scale 4 is 1.3146 -> 13146n (not truncated to 13145n)
-      expect(posRes.value[0].entryPrice).toBe(13146n);
-      // 50.005 rounded half-up to scale 2 is 50.01 -> 5001n (not truncated to 5000n)
-      expect(posRes.value[0].unrealizedPnl).toBe(5001n);
+      // Native scale parsing preserves full 5-decimal precision: 1.31456 -> price=131456n, scale=5, currency='USD'
+      expect(posRes.value[0].entryPrice).toEqual({ price: 131456n, scale: 5, currency: 'USD' });
+      // 50.005 rounded half-up to scale 2 is 50.01 -> price=5001n, scale=2, currency='USD'
+      expect(posRes.value[0].unrealizedPnl).toEqual({ price: 5001n, scale: 2, currency: 'USD' });
     }
   });
 
@@ -315,6 +315,8 @@ describe('packages/execute (OandaBrokerAdapter & Security/Safety Boundary)', () 
     if (posRes.success) {
       expect(posRes.value[0].source).toBe('oanda.rest.v3');
       expect(posRes.value[0].fetchedAt).toBeDefined();
+      expect(posRes.value[0].entryPrice.currency).toBe('USD');
+      expect(posRes.value[0].entryPrice.scale).toBe(4);
     }
 
     const stateRes = await oanda.getAccountState('101-001-123456-001');
@@ -322,6 +324,9 @@ describe('packages/execute (OandaBrokerAdapter & Security/Safety Boundary)', () 
     if (stateRes.success) {
       expect(stateRes.value.source).toBe('oanda.rest.v3');
       expect(stateRes.value.fetchedAt).toBeDefined();
+      expect(stateRes.value.balance).toEqual({ price: 10000000n, scale: 2, currency: 'USD' });
+      expect(stateRes.value.equity).toEqual({ price: 10005000n, scale: 2, currency: 'USD' });
+      expect(stateRes.value.unrealizedPnl).toEqual({ price: 5000n, scale: 2, currency: 'USD' });
     }
   });
 

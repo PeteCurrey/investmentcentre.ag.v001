@@ -187,6 +187,13 @@ export class OandaBrokerAdapter implements BrokerAdapter {
 
       const data = parsed.data;
       const orderCreateTransaction = data.orderCreateTransaction || data.orderFillTransaction;
+      const fillPriceParsed = data.orderFillTransaction?.price
+        ? parsePriceStringToBigInt(data.orderFillTransaction.price)
+        : undefined;
+
+      // Derive quote currency from instrument (e.g. GBP/USD -> USD, USD/JPY -> JPY)
+      const instrumentParts = intent.instrument.split('/');
+      const quoteCurrency = instrumentParts.length === 2 ? instrumentParts[1] : intent.entryPrice.currency;
 
       return ok({
         id: orderCreateTransaction?.id || `oanda_ord_${Date.now()}`,
@@ -194,8 +201,8 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         instrument: intent.instrument,
         status: data.orderFillTransaction ? 'FILLED' : 'SUBMITTED',
         units: intent.units,
-        fillPrice: data.orderFillTransaction?.price
-          ? parsePriceStringToBigInt(data.orderFillTransaction.price).amount
+        fillPrice: fillPriceParsed
+          ? { price: fillPriceParsed.amount, scale: fillPriceParsed.scale, currency: quoteCurrency }
           : undefined,
         submittedAt: new Date().toISOString()
       });
@@ -249,25 +256,31 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         const rawPriceStr = p.long?.averagePrice || p.short?.averagePrice || '0';
         const rawPnlStr = p.unrealizedPL || '0';
 
+        // Native parsing for entry price — no hardcoded scale 4 target. Scale and precision are preserved.
+        const parsedEntry = parsePriceStringToBigInt(rawPriceStr);
+        const parsedPnl = parsePriceStringToBigInt(rawPnlStr, 2);
+
+        // Derive quote currency from instrument e.g. GBP_USD -> USD, EUR_JPY -> JPY
+        const pairParts = p.instrument.split('_');
+        const quoteCurrency = pairParts.length === 2 ? pairParts[1] : 'USD';
+
         return {
           id: p.instrument,
           instrument: p.instrument.replace('_', '/'),
-          // ASSUMPTION 1: Units are raw integer magnitudes (scale 0).
+          // ASSUMPTION: Units are raw integer magnitudes (scale 0).
           units: parsePriceStringToBigInt(rawUnitsStr, 0).amount,
-          // ASSUMPTION 2: entryPrice target scale is 4 (standard internal FX scale).
-          // If OANDA returns 5-decimal pip precision (e.g. 1.31456), parsePriceStringToBigInt
-          // applies explicit half-up rounding (1.31456 -> 13146n at scale 4) to prevent biased truncation.
-          entryPrice: parsePriceStringToBigInt(rawPriceStr, 4).amount,
+          entryPrice: {
+            price: parsedEntry.amount,
+            scale: parsedEntry.scale,
+            currency: quoteCurrency
+          },
           // stopLossPrice is NOT available from the /openPositions endpoint.
-          // Populating it requires a separate call to /orders filtered by instrument.
-          // TODO (Phase 2, item 1 pre-requisite): fetch and join SL orders here, or expose a
-          // dedicated getStopLoss(accountId, instrument) method on BrokerAdapter.
-          // Until then, undefined is the correct value — callers MUST NOT treat undefined as
-          // "no stop-loss" (protected). It means "stop-loss status unknown."
           stopLossPrice: undefined,
-          // ASSUMPTION 3: unrealizedPnl target scale is 2 (currency cents scale).
-          // Applies half-up rounding if OANDA returns precision beyond 2 decimal places.
-          unrealizedPnl: parsePriceStringToBigInt(rawPnlStr, 2).amount,
+          unrealizedPnl: {
+            price: parsedPnl.amount,
+            scale: parsedPnl.scale,
+            currency: 'USD' // Account currency for PnL
+          },
           openedAt: new Date().toISOString(),
           source: 'oanda.rest.v3',
           fetchedAt
@@ -298,15 +311,18 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         return err(new Error(`OANDA GetAccountState Schema Error: ${parsed.error.message}`));
       }
       const summary = parsed.data.account;
+      const accountCurrency = summary.currency || 'USD';
+      const parsedBalance = parsePriceStringToBigInt(summary.balance, 2);
+      const parsedNav = parsePriceStringToBigInt(summary.NAV, 2);
+      const parsedPnl = parsePriceStringToBigInt(summary.unrealizedPL, 2);
+
       return ok({
         accountId: summary.id,
-        // ASSUMPTION: Account balances, equity (NAV), and PnL are in standard 2-decimal currency scale.
-        // Uses parsePriceStringToBigInt(..., 2) with half-up rounding.
-        balance: parsePriceStringToBigInt(summary.balance, 2).amount,
-        equity: parsePriceStringToBigInt(summary.NAV, 2).amount,
-        unrealizedPnl: parsePriceStringToBigInt(summary.unrealizedPL, 2).amount,
+        balance: { price: parsedBalance.amount, scale: parsedBalance.scale, currency: accountCurrency },
+        equity: { price: parsedNav.amount, scale: parsedNav.scale, currency: accountCurrency },
+        unrealizedPnl: { price: parsedPnl.amount, scale: parsedPnl.scale, currency: accountCurrency },
         openPositionsCount: summary.openPositionCount || 0,
-        currency: summary.currency,
+        currency: accountCurrency,
         source: 'oanda.rest.v3',
         fetchedAt: new Date().toISOString()
       });

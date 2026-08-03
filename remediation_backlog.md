@@ -11,11 +11,11 @@ This document tracks identified architectural gaps, deferred refactors, and tech
 - **Description**: `RiskGate.verifyToken` and related security gates emit misconfiguration warnings via raw `console.error`. The platform needs a unified structured logging interface (`packages/core/src/logger.ts` or similar) to ensure security and misconfiguration events survive in production log aggregators with structured context (timestamp, level, subsystem, error code, metadata).
 - **Target Phase**: Post-Phase 1 / Phase 2 Infrastructure.
 
-### 2. Broker Interface `Price` Type Standardization — Phase 2 Item 1 (MUST precede live data integration)
+### 2. Broker Interface `Price` Type Standardization — Phase 2 Item 1 (COMPLETED)
 - **Origin**: Phase 1 Item 1.4 (OANDA Broker Adapter & Execution Boundary)
-- **Description**: `BrokerPosition`, `BrokerAccountState`, and `BrokerOrder` in `packages/execute/src/index.ts` currently type monetary/price fields (`entryPrice`, `stopLossPrice`, `fillPrice`, `balance`, `equity`, `unrealizedPnl`) as bare `ScaledInteger`. In Item 1.3, `OrderIntent` was updated to use structured `Price` objects (`{ price: ScaledInteger, scale: number, currency: string }`). The absence of this type on broker response types forced three separate workaround fixes in `oanda.ts` during Phase 1 (fill-price scale, getPositions entryPrice, getPositions unrealizedPnl) using `parsePriceStringToBigInt` with hardcoded target scales and documented assumptions. Each workaround is currently stable and documented, but the underlying type gap remains.
-- **Constraint**: This refactor MUST be completed as the first Phase 2 item, before any live broker data is wired into UI pages in `apps/terminal`. Any page that renders `BrokerPosition.entryPrice` or `BrokerAccountState.balance` as a raw number without scale context will display incorrectly. Deferring past Phase 2 item 1 is not acceptable.
-- **Target Phase**: Phase 2, item 1.
+- **Status**: **COMPLETED** (Phase 2 Item 1)
+- **Description**: `BrokerPosition`, `BrokerAccountState`, and `BrokerOrder` in `packages/execute/src/index.ts` have been updated to use structured `Price` objects (`{ price: ScaledInteger, scale: number, currency: string }`) for `entryPrice`, `stopLossPrice`, `fillPrice`, `balance`, `equity`, and `unrealizedPnl`. `OandaBrokerAdapter` now constructs structured `Price` objects directly from OANDA response data using native scale parsing, removing all hardcoded target scale assumptions in `oanda.ts`.
+
 
 
 ### 3. `apps/terminal/tsconfig.json` — Raw tsc Workspace Resolution Gap
