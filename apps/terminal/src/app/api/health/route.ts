@@ -22,7 +22,7 @@ export async function GET() {
           pillar: source.pillar,
           state: 'NOT_CONNECTED',
           expected_cadence: source.cadence,
-          staleness_seconds: 0,
+          staleness_seconds: -1,
           error_rate_24h: 0.0,
           rows_written_last_window: 0,
           quota_consumed_mtd: 0,

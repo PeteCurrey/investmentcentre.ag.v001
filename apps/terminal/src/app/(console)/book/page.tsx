@@ -2,6 +2,12 @@ import React from 'react';
 import { Value } from '../../../components/Value';
 
 export default function BookPage() {
+  // DEMO DATA NOTICE: The positions array below is a structural placeholder.
+  // No live positions have been fetched from OANDA or any other source.
+  // Entry prices, current prices, units, and unrealized P&L are all '—'.
+  // 'thesisStatus: INTACT' is a static label, not a computed falsification result.
+  // The position count in the section header (2) reflects the seed array length,
+  // not the number of actual open positions.
   const positions = [
     {
       symbol: 'GBP/USD',
@@ -49,9 +55,20 @@ export default function BookPage() {
           fontFamily: '"DM Mono", monospace',
           fontWeight: 700,
           borderBottom: '1px solid #E4E4DF',
-          color: '#1C3A5E'
+          color: '#1C3A5E',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
         }}>
           STANDING POSITIONS ({positions.length})
+          <span style={{
+            padding: '2px 8px',
+            backgroundColor: '#FEF3C7',
+            color: '#92400E',
+            fontWeight: 700,
+            fontSize: '10px',
+            border: '1px solid #FCD34D',
+          }}>DEMO — NO LIVE POSITIONS</span>
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', fontFamily: '"DM Mono", monospace' }}>

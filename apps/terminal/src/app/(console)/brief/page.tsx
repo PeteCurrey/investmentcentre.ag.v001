@@ -1,63 +1,25 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
+import React from 'react';
 import { Value } from '../../../components/Value';
 
 export default function BriefPage() {
-  const [activeTab, setActiveTab] = useState<'ALL' | 'WORLD' | 'MARKETS' | 'UNDERCURRENT'>('ALL');
-
-  const salienceRankedDeltas = [
-    {
-      id: 'sal_1',
-      title: 'Fed Funds Rate Breach (5.75% vs 5.50% Thesis Threshold)',
-      metric: 'macro.fred.fedfunds',
-      pillar: 'WORLD',
-      score: 90,
-      breakdown: 'Matches active thesis (+40); Triggers complete thesis invalidation (+30); Cross-source contradiction (+20)',
-      source: 'fred',
-      val: '5.75%',
-      age: 10,
-      bias: 'BEARISH' as const,
-      instruments: ['GBP/USD', 'DXY', 'TLT'],
-    },
-    {
-      id: 'sal_2',
-      title: 'FCA Net Short Positions Spike on FTSE Retail Equities',
-      metric: 'short_interest.fca.uk_net_shorts',
-      pillar: 'MARKETS',
-      score: 70,
-      breakdown: 'Matches active thesis (+40); Cross-source contradiction (+20); Metric velocity accelerating (+10)',
-      source: 'fca_short_positions',
-      val: '4.85%',
-      age: 120,
-      bias: 'BEARISH' as const,
-      instruments: ['ASC.L', 'BOO.L', 'NMX53'],
-    },
-    {
-      id: 'sal_3',
-      title: 'Defense Innovation Systems Contract Award ($5M USD)',
-      metric: 'contract.gov.award_amount',
-      pillar: 'UNDERCURRENT',
-      score: 40,
-      breakdown: 'Matches active thesis (+40)',
-      source: 'usaspending',
-      val: '$5,000,000.00',
-      age: 3600,
-      bias: 'BULLISH' as const,
-      instruments: ['DIS', 'ITA'],
-    }
-  ];
-
-  const filteredDeltas = activeTab === 'ALL'
-    ? salienceRankedDeltas
-    : salienceRankedDeltas.filter(d => d.pillar === activeTab);
-
-  const biasConfig = {
-    BULLISH: { bg: '#DCFCE7', color: '#166534', border: '#86EFAC' },
-    BEARISH: { bg: '#FEE2E2', color: '#991B1B', border: '#FCA5A5' },
-    NEUTRAL: { bg: '#F7F7F5', color: '#6B7280', border: '#E4E4DF' },
-  };
+  // DEMO DATA NOTICE: The previous version of this page contained:
+  // 1. KPI tiles with hardcoded statistics: '18 Active' feeds, '142' deltas,
+  //    '92% High' council consensus — none sourced from any live system.
+  //    Sparkline paths were decorative SVG constants, not real data series.
+  // 2. A salience board with three hardcoded items including:
+  //    - 'Fed Funds Rate Breach 5.75%' — a fabricated specific rate figure.
+  //    - 'Defense Innovation Systems $5M' — referencing the same fabricated
+  //      entity join (with a real congresswoman's name) removed from /undercurrent.
+  //    - Fabricated 'val' fields ('5.75%', '4.85%', '$5,000,000.00') rendered
+  //      via Value with source IDs implying they were fetched observations.
+  // 3. A hardcoded date string '02 AUGUST 2026' in the page header.
+  //
+  // The salience ranking engine, delta detector, and cross-pillar synthesis
+  // are architectural components — they are not yet emitting live output to
+  // this page. The Brief will populate from real engine output once adapters
+  // are connected and the salience ranking pipeline is wired through.
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', fontFamily: '"DM Mono", monospace' }}>
@@ -65,185 +27,77 @@ export default function BriefPage() {
       <div style={{ borderBottom: '1px solid #E4E4DF', paddingBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
           <div style={{ fontSize: '10px', color: '#6B7280', marginBottom: '4px', letterSpacing: '1px' }}>
-            DAILY EXECUTIVE SYNTHESIS — 02 AUGUST 2026
+            DAILY EXECUTIVE SYNTHESIS
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 500, color: '#14181B', letterSpacing: '-0.5px', margin: 0 }}>
             The Brief
           </h1>
           <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px', marginBottom: 0 }}>
-            Deterministic explicit-weight salience ranking & position impact assessment.
+            Deterministic explicit-weight salience ranking &amp; position impact assessment.
           </p>
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', fontSize: '11px' }}>
-          {(['ALL', 'WORLD', 'MARKETS', 'UNDERCURRENT'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                padding: '4px 12px',
-                backgroundColor: activeTab === tab ? '#1C3A5E' : '#F7F7F5',
-                color: activeTab === tab ? '#FFFFFF' : '#6B7280',
-                border: '1px solid #E4E4DF',
-                cursor: 'pointer',
-                fontFamily: '"DM Mono", monospace',
-                fontSize: '10px',
-                letterSpacing: '0.5px'
-              }}
-            >
-              {tab}
-            </button>
-          ))}
         </div>
       </div>
 
-      {/* KPI Summary Grid with SVG Sparklines */}
+      {/* DEMO notice */}
+      <div style={{
+        border: '1px solid #FCD34D',
+        backgroundColor: '#FFFBEB',
+        padding: '16px 20px',
+        fontSize: '12px',
+      }}>
+        <div style={{ fontWeight: 700, color: '#92400E', marginBottom: '6px', fontSize: '11px', letterSpacing: '0.05em' }}>
+          ⚠ DEMO — SALIENCE ENGINE NOT CONNECTED
+        </div>
+        <div style={{ color: '#78350F', lineHeight: '1.6' }}>
+          No live brief data is available. The salience ranking engine, delta detector, and cross-pillar synthesis pipeline are built but not yet wired to produce output for this page. KPI summary tiles and the ranked delta board will populate automatically once adapters are connected and the engine begins emitting scored Observation records. The date header, feed counts, and consensus figures on this page must come from live system state — not hardcoded values.
+        </div>
+      </div>
+
+      {/* KPI tiles — only the honest GBP/USD '—' tile remains */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+        {/* Three fabricated tiles replaced with disconnected placeholders */}
         {[
-          { label: 'MONITORED FEEDS', val: '18 Active', source: 'registry', age: 0, path: 'M0 20 L20 18 L40 22 L60 12 L80 15 L100 8' },
-          { label: 'DELTAS DETECTED (24H)', val: '142', source: 'delta_engine', age: 12, path: 'M0 25 L20 22 L40 18 L60 10 L80 14 L100 5' },
-          { label: 'COUNCIL CONSENSUS', val: '92% High', source: 'ai_council', age: 45, path: 'M0 15 L20 15 L40 12 L60 8 L80 10 L100 6' },
-          { label: 'GBP/USD SPOT', val: '—', unit: 'GBP/USD', source: 'twelve_data', age: 0, path: 'M0 22 L20 25 L40 20 L60 15 L80 18 L100 10' },
+          { label: 'MONITORED FEEDS', source: 'registry' },
+          { label: 'DELTAS DETECTED (24H)', source: 'delta_engine' },
+          { label: 'COUNCIL CONSENSUS', source: 'ai_council' },
         ].map((kpi, idx) => (
-          <div key={idx} style={{ border: '1px solid #E4E4DF', padding: '14px 16px', backgroundColor: '#F7F7F5', position: 'relative', overflow: 'hidden' }}>
+          <div key={idx} style={{ border: '1px solid #FCD34D', padding: '14px 16px', backgroundColor: '#FFFBEB', position: 'relative', overflow: 'hidden' }}>
             <div style={{ fontSize: '10px', color: '#6B7280', fontWeight: 600, letterSpacing: '0.5px' }}>
               {kpi.label}
             </div>
-            <div style={{ marginTop: '6px', fontSize: '16px', fontWeight: 500, color: '#14181B' }}>
-              <Value provenance={{ value: kpi.val, unit: kpi.unit, source: kpi.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: kpi.age }} />
-            </div>
-
-            {/* Sparkline Graphic */}
-            <div style={{ marginTop: '10px', height: '24px', width: '100%' }}>
-              <svg width="100%" height="24" viewBox="0 0 100 30" preserveAspectRatio="none">
-                <path d={kpi.path} fill="none" stroke="#1C3A5E" strokeWidth="1.5" opacity="0.6" />
-              </svg>
+            <div style={{ marginTop: '6px', fontSize: '11px', fontWeight: 600, color: '#92400E' }}>
+              DEMO — NOT CONNECTED
             </div>
           </div>
         ))}
+        {/* GBP/USD tile — honest '—' state, kept as-is */}
+        <div style={{ border: '1px solid #E4E4DF', padding: '14px 16px', backgroundColor: '#F7F7F5', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ fontSize: '10px', color: '#6B7280', fontWeight: 600, letterSpacing: '0.5px' }}>
+            GBP/USD SPOT
+          </div>
+          <div style={{ marginTop: '6px', fontSize: '16px', fontWeight: 500, color: '#14181B' }}>
+            <Value provenance={{ value: '—', unit: 'GBP/USD', source: 'twelve_data', sourceTimestamp: new Date().toISOString(), stalenessSeconds: 0 }} />
+          </div>
+        </div>
       </div>
 
-      {/* Salience Ranked Priority Board */}
+      {/* Salience board — empty state */}
       <div style={{ border: '1px solid #E4E4DF', padding: '20px', backgroundColor: '#FFFFFF' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #E4E4DF', paddingBottom: '10px', marginBottom: '16px' }}>
           <h2 style={{ fontSize: '12px', fontWeight: 600, color: '#1C3A5E', margin: 0, letterSpacing: '0.5px' }}>
-            [SALIENCE RANKING] HIGHEST PRIORITY OPPORTUNITIES & DELTAS
+            [SALIENCE RANKING] HIGHEST PRIORITY OPPORTUNITIES &amp; DELTAS
           </h2>
-          <span style={{ fontSize: '10px', color: '#6B7280' }}>
-            SHOWING {filteredDeltas.length} OF {salienceRankedDeltas.length} ITEMS
-          </span>
+          <span style={{
+            padding: '2px 8px',
+            backgroundColor: '#FEF3C7',
+            color: '#92400E',
+            fontWeight: 700,
+            fontSize: '10px',
+            border: '1px solid #FCD34D',
+          }}>DEMO — ENGINE OUTPUT REQUIRED</span>
         </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {filteredDeltas.map((item) => {
-            const bias = biasConfig[item.bias];
-            return (
-              <Link
-                key={item.id}
-                href={`/story/${item.id}`}
-                style={{ textDecoration: 'none', display: 'block' }}
-              >
-                <div style={{
-                  border: `1px solid ${bias.border}`,
-                  padding: '16px',
-                  backgroundColor: '#FFFFFF',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  cursor: 'pointer',
-                  transition: 'background-color 0.15s ease',
-                }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as any).style.backgroundColor = '#F7F7F5';
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as any).style.backgroundColor = '#FFFFFF';
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                      {/* Crisp Salience Score Tag */}
-                      <span style={{
-                        padding: '2px 8px',
-                        backgroundColor: item.score >= 80 ? '#FEE2E2' : '#FEF3C7',
-                        color: item.score >= 80 ? '#991B1B' : '#92400E',
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        border: '1px solid #E4E4DF',
-                      }}>
-                        SALIENCE {item.score}/100
-                      </span>
-                      
-                      <span style={{
-                        padding: '2px 8px',
-                        backgroundColor: bias.bg,
-                        color: bias.color,
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        border: `1px solid ${bias.border}`,
-                      }}>
-                        {item.bias}
-                      </span>
-
-                      <span style={{
-                        padding: '2px 6px',
-                        backgroundColor: '#1C3A5E',
-                        color: '#FFFFFF',
-                        fontSize: '9px',
-                        fontWeight: 600,
-                      }}>
-                        {item.pillar}
-                      </span>
-
-                      <span style={{ fontSize: '13px', fontWeight: 500, color: '#14181B' }}>
-                        {item.title}
-                      </span>
-                    </div>
-
-                    {/* Salience Meter Bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{ flex: 1, maxWidth: '240px', height: '4px', backgroundColor: '#E4E4DF', overflow: 'hidden' }}>
-                        <div style={{
-                          width: `${item.score}%`,
-                          height: '100%',
-                          backgroundColor: item.score >= 80 ? '#DC2626' : '#D97706'
-                        }} />
-                      </div>
-                      <span style={{ fontSize: '10px', color: '#6B7280' }}>
-                        WEIGHT: {item.breakdown}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
-                      {item.instruments.map(t => (
-                        <span key={t} style={{
-                          padding: '1px 6px',
-                          backgroundColor: '#F7F7F5',
-                          border: '1px solid #E4E4DF',
-                          fontSize: '10px',
-                          fontWeight: 500,
-                          color: '#1C3A5E',
-                        }}>
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={{ textAlign: 'right', marginLeft: '24px' }}>
-                    <Value provenance={{ value: item.val, source: item.source, sourceTimestamp: new Date().toISOString(), stalenessSeconds: item.age }} />
-                    <div style={{
-                      fontSize: '10px',
-                      color: '#1C3A5E',
-                      marginTop: '8px',
-                    }}>
-                      VIEW NARRATIVE →
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+        <div style={{ padding: '32px', textAlign: 'center', fontSize: '12px', color: '#9CA3AF' }}>
+          No ranked deltas available. Salience engine connection required.
         </div>
       </div>
     </div>
