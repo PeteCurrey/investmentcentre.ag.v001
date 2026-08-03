@@ -18,9 +18,9 @@ This document tracks identified architectural gaps, deferred refactors, and tech
 
 
 
-### 3. `apps/terminal/tsconfig.json` — Raw tsc Workspace Resolution Gap
+### 3. `apps/terminal/tsconfig.json` — Raw tsc Workspace Resolution Gap (COMPLETED)
 - **Origin**: Phase 1 Item 1.5 (Kill-Switch Verification)
-- **Description**: Running `tsc --noEmit` directly against `apps/terminal/tsconfig.json` produces TS6059/TS6307 errors for all workspace packages (`@meridian/core`, `@meridian/adapters`, `@meridian/registry`). Raw tsc resolves these via `node_modules` symlinks to package source files, which are outside `apps/terminal`'s implicit `rootDir`. The Next.js build pipeline handles this correctly via its `next` tsconfig plugin and `transpilePackages` webpack config, so `next build` succeeds and type-checks cleanly. The fix is to add `"paths": {}` to `apps/terminal/tsconfig.json`, consistent with the fix applied to `apps/engine` and `apps/scheduler` in Phase 1 Item 1.3. This is a CI hygiene issue — it prevents raw tsc from being used as a reliable gate for this app outside of `next build`.
-- **Target Phase**: Phase 1 Item 1.9 (Verification pass) or early Phase 2 infrastructure cleanup.
+- **Status**: **COMPLETED** (Phase 2 Item 2)
+- **Fix**: Added `"paths": {}` to `compilerOptions` in `apps/terminal/tsconfig.json`. Raw `tsc --noEmit` now exits 0 with no errors, consistent with `apps/engine` and `apps/scheduler`.
 
 ---
