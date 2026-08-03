@@ -6,10 +6,10 @@ This document tracks identified architectural gaps, deferred refactors, and tech
 
 ## Technical Debt & Deferred Items
 
-### 1. Structured Logging Infrastructure
+### 1. Structured Logging Infrastructure (COMPLETED)
 - **Origin**: Phase 1 Item 1.2 (Security Exception & HMAC misconfiguration logging)
-- **Description**: `RiskGate.verifyToken` and related security gates emit misconfiguration warnings via raw `console.error`. The platform needs a unified structured logging interface (`packages/core/src/logger.ts` or similar) to ensure security and misconfiguration events survive in production log aggregators with structured context (timestamp, level, subsystem, error code, metadata).
-- **Target Phase**: Post-Phase 1 / Phase 2 Infrastructure.
+- **Status**: **COMPLETED** (Phase 2 Item 3)
+- **Description**: Created `packages/core/src/logger.ts`, providing a zero-dependency structured logger that emits newline-delimited JSON records (`ts`, `level`, `subsystem`, `msg`, context fields) to `stdout`/`stderr` with level filtering (`LOG_LEVEL`). Migrated `RiskGate.verifyToken`, `apps/engine`, and `apps/scheduler` to structured logging. Unit tested with 7 new tests in `packages/core/src/logger.test.ts`.
 
 ### 2. Broker Interface `Price` Type Standardization — Phase 2 Item 1 (COMPLETED)
 - **Origin**: Phase 1 Item 1.4 (OANDA Broker Adapter & Execution Boundary)

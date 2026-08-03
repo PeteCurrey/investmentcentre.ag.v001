@@ -1,5 +1,7 @@
-import { Result, ok, err, ScaledInteger, Price, normalizeScale } from '@meridian/core';
+import { Result, ok, err, ScaledInteger, Price, normalizeScale, createLogger } from '@meridian/core';
 import crypto from 'crypto';
+
+const log = createLogger('RiskGate');
 
 export interface RiskProfile {
   id: string;
@@ -227,9 +229,10 @@ export class RiskGate {
     try {
       secret = requireHmacSecret();
     } catch (err: any) {
-      console.error(
-        `[RiskGate.verifyToken] SYSTEM MISCONFIGURATION: HMAC secret unconfigured or invalid (${err.message}). Rejecting token verification.`
-      );
+      log.error('HMAC secret unconfigured or invalid — token verification rejected', {
+        errorCode: 'HMAC_SECRET_MISSING',
+        errorMessage: err.message,
+      });
       return false;
     }
     const payload = `${intent.id}:${intent.accountId}:${intent.instrument}:${token.issuedAt}:${token.expiresAt}`;

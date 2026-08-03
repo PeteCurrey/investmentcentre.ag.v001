@@ -1,13 +1,14 @@
 import { WAVE_1_REGISTRY } from '@meridian/registry';
 import { createAdapter } from '@meridian/adapters';
 import { DeltaEngine } from '@meridian/delta';
-import { Observation } from '@meridian/core';
+import { Observation, createLogger } from '@meridian/core';
 
-console.log('====================================================');
-console.log('MERIDIAN Ingestion Daemon & Contradiction Engine v1.0');
-console.log(`Loaded ${WAVE_1_REGISTRY.length} Wave-1 source registry entries.`);
-console.log('Mode: OBSERVE | Ingestion Engine: ACTIVE');
-console.log('====================================================');
+const log = createLogger('IngestionEngine');
+
+log.info('MERIDIAN Ingestion Daemon & Contradiction Engine v1.0 started', {
+  registrySize: WAVE_1_REGISTRY.length,
+  mode: 'OBSERVE',
+});
 
 const deltaEngine = new DeltaEngine();
 const activeAdapters = [
@@ -44,24 +45,35 @@ async function runIngestionCycle() {
           const normRes = adapter.normalise(valRes.value);
           if (normRes.success) {
             accumulatedObservations.push(...normRes.value);
-            console.log(`[INGESTION OK] Source: ${sourceId} | Observations: ${normRes.value.length} | RawRef: ${fetchRes.value.ref}`);
+            log.info('Ingestion cycle OK', {
+              sourceId,
+              observations: normRes.value.length,
+              rawRef: fetchRes.value.ref,
+            });
           }
         }
       }
     } catch (err: any) {
-      console.error(`[INGESTION ERROR] Source ${sourceId}:`, err.message);
+      log.error('Ingestion cycle failed', { sourceId, errorMessage: err.message });
     }
   }
 
   // Contradiction Detection
   const contradictions = deltaEngine.detectContradictions(accumulatedObservations);
   if (contradictions.length > 0) {
-    console.warn(`[CONTRADICTION DETECTED] ${contradictions.length} cross-source conflicts logged.`);
+    log.warn('Cross-source contradictions detected', { count: contradictions.length });
     for (const c of contradictions) {
-      console.warn(` -> Metric: ${c.metric} | SourceA: ${c.sourceIdA} (${c.valueA}) vs SourceB: ${c.sourceIdB} (${c.valueB}) | Divergence: ${c.divergencePct}%`);
+      log.warn('Contradiction detail', {
+        metric: c.metric,
+        sourceIdA: c.sourceIdA,
+        valueA: c.valueA,
+        sourceIdB: c.sourceIdB,
+        valueB: c.valueB,
+        divergencePct: c.divergencePct,
+      });
     }
   } else {
-    console.log(`[CONTRADICTION CHECK] Zero cross-source conflicts across ${accumulatedObservations.length} observations.`);
+    log.info('Contradiction check passed', { totalObservations: accumulatedObservations.length });
   }
 }
 
