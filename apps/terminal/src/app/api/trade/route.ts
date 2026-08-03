@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent } from '@meridian/risk';
+import { toScaledInteger, createPrice, moneyToString } from '@meridian/core';
+import crypto from 'crypto';
 
 export async function POST(request: Request) {
   const cookieStore = await cookies();
@@ -11,8 +15,18 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = await request.json() as { instrument: string; direction: 'BUY' | 'SELL'; units: string; stopLoss?: string; takeProfit?: string; orderType: 'MARKET' | 'LIMIT'; limitPrice?: string };
-  const { instrument, direction, units, stopLoss, takeProfit, orderType, limitPrice } = body;
+  const body = await request.json() as {
+    instrument: string;
+    direction: 'BUY' | 'SELL';
+    units: string;
+    stopLoss?: string;
+    takeProfit?: string;
+    orderType: 'MARKET' | 'LIMIT';
+    limitPrice?: string;
+    currentPrice?: string;
+  };
+
+  const { instrument, direction, units, stopLoss, takeProfit, orderType, limitPrice, currentPrice } = body;
 
   const tier4Enabled = process.env.TIER_4_ENABLED === 'true';
   if (!tier4Enabled) {
@@ -24,72 +38,117 @@ export async function POST(request: Request) {
 
   const token = process.env.OANDA_API_TOKEN;
   const accountId = process.env.OANDA_ACCOUNT_ID;
-  const env = process.env.OANDA_ENVIRONMENT || 'practice';
+  const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
 
   if (!token || !accountId) {
-    return NextResponse.json({ error: 'OANDA credentials not configured.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'OANDA_CONFIG_ERROR: OANDA credentials (OANDA_API_TOKEN/OANDA_ACCOUNT_ID) not configured.' },
+      { status: 500 }
+    );
   }
 
-  const baseUrl = env === 'live'
-    ? 'https://api-fxtrade.oanda.com'
-    : 'https://api-fxpractice.oanda.com';
+  // Derive quote currency from instrument e.g. GBP/USD -> USD, USD/JPY -> JPY
+  const instrumentParts = instrument.split('/');
+  const quoteCurrency = instrumentParts.length === 2 ? instrumentParts[1] : 'USD';
 
-  // Build the Oanda order body
-  const unitsValue = direction === 'BUY' ? Math.abs(Number(units)) : -Math.abs(Number(units));
+  // 1. Initialize the adapter behind the cryptographic risk gate
+  const adapter = new OandaBrokerAdapter({
+    apiKey: token,
+    accountId: accountId,
+    environment: env
+  });
 
-  const orderBody: Record<string, any> = {
-    order: {
-      type: orderType === 'LIMIT' ? 'LIMIT' : 'MARKET',
-      instrument: instrument.replace('/', '_'),
-      units: String(unitsValue),
-      timeInForce: orderType === 'LIMIT' ? 'GTC' : 'FOK',
-      positionFill: 'DEFAULT',
-    }
+  // 2. Fetch the live account state from OANDA to construct exact real-time AccountRiskState
+  const stateResult = await adapter.getAccountState(accountId);
+  if (!stateResult.success) {
+    return NextResponse.json(
+      { error: `BROKER_CONNECTION_ERROR: Unable to retrieve account risk state. ${stateResult.error.message}` },
+      { status: 502 }
+    );
+  }
+
+  const accountState = stateResult.value;
+
+  // 3. Parse and normalize price/units to build a precise branded OrderIntent
+  const entryStr = orderType === 'LIMIT' && limitPrice ? limitPrice : (currentPrice || '0');
+  if (entryStr === '0' || !entryStr) {
+    return NextResponse.json(
+      { error: 'INVALID_ENTRY_PRICE: Entry price must be specified or current price provided.' },
+      { status: 400 }
+    );
+  }
+
+  const entryPriceParsed = parsePriceStringToBigInt(entryStr);
+  const entryPrice = createPrice(entryPriceParsed.amount, entryPriceParsed.scale, quoteCurrency);
+
+  if (!stopLoss) {
+    return NextResponse.json(
+      { error: 'MISSING_STOP_LOSS: Institutional safety guidelines require a valid stop-loss on every order.' },
+      { status: 400 }
+    );
+  }
+
+  const stopLossPriceParsed = parsePriceStringToBigInt(stopLoss);
+  const stopLossPrice = createPrice(stopLossPriceParsed.amount, stopLossPriceParsed.scale, quoteCurrency);
+
+  const takeProfitPrice = takeProfit
+    ? (() => {
+        const parsed = parsePriceStringToBigInt(takeProfit);
+        return createPrice(parsed.amount, parsed.scale, quoteCurrency);
+      })()
+    : undefined;
+
+  const intent: OrderIntent = {
+    id: `ord_${crypto.randomUUID()}`,
+    accountId,
+    instrument,
+    direction,
+    units: toScaledInteger(BigInt(units)),
+    entryPrice,
+    stopLossPrice,
+    takeProfitPrice,
+    requestedAt: new Date().toISOString()
   };
 
-  if (orderType === 'LIMIT' && limitPrice) {
-    orderBody.order.price = String(limitPrice);
+  // 4. Pass order and real-time state through the Cryptographic RiskGate Rules Engine
+  const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, {
+    accountId,
+    startingDailyBalance: accountState.balance.price,
+    currentEquity: accountState.equity.price,
+    highWaterMark: accountState.balance.price,
+    openPositionCount: accountState.openPositionsCount,
+    realizedPnlToday: toScaledInteger(0n),
+    unrealizedPnl: accountState.unrealizedPnl.price,
+    isNewsBlackoutActive: false
+  });
+
+  if (!decision.approved || !decision.token) {
+    return NextResponse.json(
+      { error: `RISK_GATE_REJECTED: Order blocked by Risk Gate. Code: ${decision.reasonCode || 'UNKNOWN_REJECTION'}` },
+      { status: 400 }
+    );
   }
 
-  if (stopLoss) {
-    orderBody.order.stopLossOnFill = { price: String(stopLoss), timeInForce: 'GTC' };
+  // 5. Submit the order to OANDA alongside the signed Cryptographic ApprovalToken
+  const submitResult = await adapter.submitOrder(intent, decision.token);
+
+  if (!submitResult.success) {
+    return NextResponse.json(
+      { error: `BROKER_SUBMISSION_FAILED: ${submitResult.error.message}` },
+      { status: 502 }
+    );
   }
 
-  if (takeProfit) {
-    orderBody.order.takeProfitOnFill = { price: String(takeProfit), timeInForce: 'GTC' };
-  }
+  const filledOrder = submitResult.value;
 
-  try {
-    const res = await fetch(`${baseUrl}/v3/accounts/${accountId}/orders`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Accept-Datetime-Format': 'RFC3339',
-      },
-      body: JSON.stringify(orderBody),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: data.errorMessage || 'Oanda API error', details: data },
-        { status: res.status }
-      );
-    }
-
-    const fill = data.orderFillTransaction || data.orderCreateTransaction;
-    return NextResponse.json({
-      success: true,
-      orderId: fill?.id || data.relatedTransactionIDs?.[0],
-      fillPrice: fill?.price || fill?.tradeOpened?.price,
-      units: fill?.units || String(unitsValue),
-      instrument: fill?.instrument || orderBody.order.instrument,
-      timestamp: fill?.time || new Date().toISOString(),
-      raw: data,
-    });
-  } catch (err: any) {
-    return NextResponse.json({ error: `Network error: ${err.message}` }, { status: 500 });
-  }
+  return NextResponse.json({
+    success: true,
+    orderId: filledOrder.id,
+    fillPrice: filledOrder.fillPrice
+      ? moneyToString({ amount: filledOrder.fillPrice.price, scale: filledOrder.fillPrice.scale, currency: filledOrder.fillPrice.currency })
+      : 'MARKET',
+    units: String(filledOrder.units),
+    instrument: filledOrder.instrument,
+    timestamp: filledOrder.submittedAt
+  });
 }

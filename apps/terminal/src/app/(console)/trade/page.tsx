@@ -138,6 +138,7 @@ export default function TradePage() {
           takeProfit,
           orderType,
           limitPrice,
+          currentPrice: inst.price === '—' ? undefined : inst.price,
         }),
       });
       const data = await res.json() as { error?: string; fillPrice?: string; orderId?: string; success?: boolean };

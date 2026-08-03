@@ -4,8 +4,14 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow login page, health API, and Next.js static assets
+  // Redirect legacy /landing route to /meridian
+  if (pathname === '/landing') {
+    return NextResponse.redirect(new URL('/meridian', request.url));
+  }
+
+  // Allow public marketing page (/meridian), login page, health API, and static assets
   if (
+    pathname === '/meridian' ||
     pathname === '/login' ||
     pathname === '/api/health' ||
     pathname.startsWith('/_next') ||
