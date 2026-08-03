@@ -273,7 +273,8 @@ conviction and agreeScore must be integers from 0 to 100.
             });
           }
         } else {
-          log.error('Anthropic API request failed', { status: res.status });
+          const errText = await res.text();
+          log.error('Anthropic API request failed', { status: res.status, errorText: errText });
         }
       } catch (err: any) {
         log.error('Anthropic API exception', { error: err.message });
@@ -329,7 +330,8 @@ conviction and agreeScore must be integers from 0 to 100.
             });
           }
         } else {
-          log.error('OpenAI API request failed', { status: res.status });
+          const errText = await res.text();
+          log.error('OpenAI API request failed', { status: res.status, errorText: errText });
         }
       } catch (err: any) {
         log.error('OpenAI API exception', { error: err.message });
@@ -346,7 +348,7 @@ conviction and agreeScore must be integers from 0 to 100.
             'content-type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'grok-beta',
+            model: 'grok-2-latest',
             max_tokens: 1000,
             messages: [{ role: 'user', content: promptContext }],
           }),
@@ -374,7 +376,7 @@ conviction and agreeScore must be integers from 0 to 100.
 
             opinions.push({
               role: 'SENTIMENT_NARRATIVE_ANALYST',
-              modelName: 'grok-beta',
+              modelName: 'grok-2-latest',
               provider: 'xai',
               summary: summaryText,
               conviction: typeof parsed.conviction === 'number' ? Math.min(100, Math.max(0, parsed.conviction)) : 75,
@@ -384,7 +386,8 @@ conviction and agreeScore must be integers from 0 to 100.
             });
           }
         } else {
-          log.error('xAI API request failed', { status: res.status });
+          const errText = await res.text();
+          log.error('xAI API request failed', { status: res.status, errorText: errText });
         }
       } catch (err: any) {
         log.error('xAI API exception', { error: err.message });
