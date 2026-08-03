@@ -10,7 +10,7 @@ export default function WorldPage() {
       id: 'macro_1',
       name: 'Federal Funds Effective Rate',
       metric: 'macro.fred.fedfunds',
-      value: '5.33%',
+      value: '—',
       source: 'fred',
       staleness: 86400,
       timestamp: '2026-08-01T00:00:00Z',

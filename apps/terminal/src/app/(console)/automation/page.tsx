@@ -6,50 +6,41 @@ export default function AutomationPage() {
   // FAIL-CLOSED: Tier 4 execution is only active when NEXT_PUBLIC_TIER_4_ENABLED is explicitly 'true'.
   // Any other value (absent, 'false', misspelled) correctly maps to disabled.
   const tier4Enabled = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
-  // FAIL-CLOSED: No fallback for environment or account ID. Unconfigured state is shown explicitly.
   const oandaEnv = process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT || undefined;
   const oandaAccount = process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID || undefined;
 
-  const rules = [
+  const mockRules = [
     {
       id: 'rule_1',
       name: 'Fed Funds Threshold Breached',
       triggerMetric: 'macro.fred.fedfunds',
       tier: '1_WATCH',
-      enabled: true,
       targetInstrument: 'GBP/USD',
       direction: 'BUY',
-      stopLossPrice: '1.3000'
     },
     {
       id: 'rule_2',
       name: 'EIA Energy Supply Shock',
       triggerMetric: 'commodity.eia.stockpile',
       tier: '2_RESEARCH',
-      enabled: true,
       targetInstrument: 'WTI_CRUDE',
       direction: 'BUY',
-      stopLossPrice: '75.00'
     },
     {
       id: 'rule_3',
       name: 'FCA Short Interest Acceleration',
       triggerMetric: 'short_interest.fca.uk_net_shorts',
       tier: '3_PREPARE',
-      enabled: true,
       targetInstrument: 'GBP/USD',
       direction: 'BUY',
-      stopLossPrice: '1.2950'
     },
     {
       id: 'rule_4',
       name: 'Direct Market Execution Seam',
       triggerMetric: 'price.spot.gbp_usd',
       tier: '4_EXECUTE',
-      enabled: true,
       targetInstrument: 'GBP/USD',
       direction: 'BUY',
-      stopLossPrice: '1.3000'
     }
   ];
 
@@ -57,7 +48,7 @@ export default function AutomationPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ borderBottom: '1px solid #E4E4DF', paddingBottom: '16px' }}>
         <div style={{ fontSize: '11px', color: '#6B7280', fontFamily: '"DM Mono", monospace', marginBottom: '4px' }}>
-          PILLAR VIII — AUTOMATION ENGINE & 4-TIER ESCALATION
+          PILLAR VIII — AUTOMATION ENGINE &amp; 4-TIER ESCALATION
         </div>
         <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#14181B' }}>
           Automation Rule Registry
@@ -104,7 +95,7 @@ export default function AutomationPage() {
           borderBottom: '1px solid #E4E4DF',
           color: '#1C3A5E'
         }}>
-          ACTIVE AUTOMATION RULES ({rules.length})
+          DEMO AUTOMATION RULE REGISTRY ({mockRules.length} SPECIFICATION EXAMPLES)
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', fontFamily: '"DM Mono", monospace' }}>
@@ -119,7 +110,7 @@ export default function AutomationPage() {
             </tr>
           </thead>
           <tbody>
-            {rules.map((r) => (
+            {mockRules.map((r) => (
               <tr key={r.id} style={{ borderBottom: '1px solid #E4E4DF' }}>
                 <td style={{ padding: '12px 16px', fontWeight: 700 }}>{r.name}</td>
                 <td style={{ padding: '12px 16px', color: '#1C3A5E' }}>{r.triggerMetric}</td>
@@ -142,13 +133,13 @@ export default function AutomationPage() {
                 <td style={{ padding: '12px 16px' }}>
                   <span style={{
                     padding: '2px 8px',
-                    backgroundColor: r.enabled ? '#DCFCE7' : '#FEF3C7',
-                    color: r.enabled ? '#166534' : '#92400E',
+                    backgroundColor: '#F7F7F5',
+                    color: '#64748B',
                     fontWeight: 700,
                     fontSize: '10px',
                     border: '1px solid #E4E4DF'
                   }}>
-                    {r.enabled ? 'ENABLED' : 'DISABLED'}
+                    DEMO — NOT ACTIVE
                   </span>
                 </td>
               </tr>

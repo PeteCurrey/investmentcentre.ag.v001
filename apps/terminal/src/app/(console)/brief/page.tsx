@@ -103,7 +103,7 @@ export default function BriefPage() {
           { label: 'MONITORED FEEDS', val: '18 Active', source: 'registry', age: 0, path: 'M0 20 L20 18 L40 22 L60 12 L80 15 L100 8' },
           { label: 'DELTAS DETECTED (24H)', val: '142', source: 'delta_engine', age: 12, path: 'M0 25 L20 22 L40 18 L60 10 L80 14 L100 5' },
           { label: 'COUNCIL CONSENSUS', val: '92% High', source: 'ai_council', age: 45, path: 'M0 15 L20 15 L40 12 L60 8 L80 10 L100 6' },
-          { label: 'GBP/USD SPOT', val: '1.3145', unit: 'GBP/USD', source: 'twelve_data', age: 5, path: 'M0 22 L20 25 L40 20 L60 15 L80 18 L100 10' },
+          { label: 'GBP/USD SPOT', val: '—', unit: 'GBP/USD', source: 'twelve_data', age: 0, path: 'M0 22 L20 25 L40 20 L60 15 L80 18 L100 10' },
         ].map((kpi, idx) => (
           <div key={idx} style={{ border: '1px solid #E4E4DF', padding: '14px 16px', backgroundColor: '#F7F7F5', position: 'relative', overflow: 'hidden' }}>
             <div style={{ fontSize: '10px', color: '#6B7280', fontWeight: 600, letterSpacing: '0.5px' }}>

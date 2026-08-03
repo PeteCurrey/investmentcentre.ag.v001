@@ -125,10 +125,8 @@ export default async function LoginPage({
           </button>
         </form>
 
-        <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '11px', fontFamily: '"DM Mono", monospace' }}>
-          <a href="/landing" style={{ color: '#64748B', textDecoration: 'none' }}>
-            ← VIEW PUBLIC PRODUCT OVERVIEW
-          </a>
+        <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '10px', color: '#94A3B8', fontFamily: '"DM Mono", monospace' }}>
+          RESTRICTED ACCESS // AUTHORIZED OPERATORS ONLY
         </div>
       </div>
     </div>

@@ -98,18 +98,10 @@ export default function ConsoleLayout({
         overflowX: 'auto',
         whiteSpace: 'nowrap'
       }}>
-        <span style={{ color: '#1E3A5F', fontWeight: 700, letterSpacing: '1px' }}>LIVE TICKS //</span>
-        <span>GBP/USD <strong style={{ color: '#15803D', fontWeight: 600 }}>1.3145 (+0.42%)</strong></span>
+        <span style={{ color: '#1E3A5F', fontWeight: 700, letterSpacing: '1px' }}>TICKER FEED //</span>
+        <span style={{ color: '#64748B' }}>REAL-TIME FEED: <strong style={{ color: '#991B1B', fontWeight: 600 }}>NOT CONNECTED</strong></span>
         <span style={{ color: '#CBD5E1' }}>|</span>
-        <span>WTI CRUDE <strong style={{ color: '#15803D', fontWeight: 600 }}>$78.40 (+1.85%)</strong></span>
-        <span style={{ color: '#CBD5E1' }}>|</span>
-        <span>SPX INDEX <strong style={{ color: '#15803D', fontWeight: 600 }}>5,520.40 (+0.28%)</strong></span>
-        <span style={{ color: '#CBD5E1' }}>|</span>
-        <span>EUR/USD <strong style={{ color: '#B91C1C', fontWeight: 600 }}>1.0920 (-0.15%)</strong></span>
-        <span style={{ color: '#CBD5E1' }}>|</span>
-        <span>US 10Y TREASURY <strong style={{ color: '#B91C1C', fontWeight: 600 }}>4.18% (-2bps)</strong></span>
-        <span style={{ color: '#CBD5E1' }}>|</span>
-        <span>FED FUNDS EFFECTIVE <strong style={{ color: '#0F172A', fontWeight: 600 }}>5.33%</strong></span>
+        <span style={{ color: '#94A3B8' }}>Set TWELVE_DATA_API_KEY or FINNHUB_API_KEY in environment for live streaming</span>
       </div>
 
       {/* Main Console Body */}

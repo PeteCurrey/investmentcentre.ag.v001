@@ -1,6 +1,16 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
+  const cookieStore = await cookies();
+  const session = cookieStore.get('console_session')?.value;
+  if (session !== 'active_session') {
+    return NextResponse.json(
+      { error: 'UNAUTHORIZED: Authentication required.' },
+      { status: 401 }
+    );
+  }
+
   const body = await request.json() as { instrument: string; direction: 'BUY' | 'SELL'; units: string; stopLoss?: string; takeProfit?: string; orderType: 'MARKET' | 'LIMIT'; limitPrice?: string };
   const { instrument, direction, units, stopLoss, takeProfit, orderType, limitPrice } = body;
 

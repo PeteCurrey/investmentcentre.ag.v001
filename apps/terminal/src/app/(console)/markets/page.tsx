@@ -6,10 +6,10 @@ import { Value } from '../../../components/Value';
 
 export default function MarketsPage() {
   const prices = [
-    { id: 'mkt_gbpusd', symbol: 'GBP/USD', name: 'British Pound / US Dollar', price: '1.3145', change: '+0.42%', source: 'twelve_data', age: 5, bias: 'NEUTRAL' as const, note: 'Range-bound 1.295–1.328. FOMC catalyst.' },
-    { id: 'mkt_eurusd', symbol: 'EUR/USD', name: 'Euro / US Dollar', price: '1.0920', change: '-0.15%', source: 'twelve_data', age: 5, bias: 'BEARISH' as const, note: 'USD strength on delayed cut cycle.' },
-    { id: 'mkt_wti', symbol: 'WTI_CRUDE', name: 'WTI Light Sweet Crude', price: '$78.40', change: '+1.85%', source: 'twelve_data', age: 10, bias: 'BULLISH' as const, note: 'EIA draw -3.4M bbl vs +1.2M consensus.' },
-    { id: 'mkt_spx', symbol: 'SPX_INDEX', name: 'S&P 500 Index', price: '5,520.40', change: '+0.28%', source: 'finnhub', age: 15, bias: 'NEUTRAL' as const, note: 'Earnings season support. Fed rate sensitivity.' },
+    { id: 'mkt_gbpusd', symbol: 'GBP/USD', name: 'British Pound / US Dollar', price: '—', change: '—', source: 'twelve_data', age: 0, bias: 'NEUTRAL' as const, note: 'Range-bound 1.295–1.328. FOMC catalyst.' },
+    { id: 'mkt_eurusd', symbol: 'EUR/USD', name: 'Euro / US Dollar', price: '—', change: '—', source: 'twelve_data', age: 0, bias: 'BEARISH' as const, note: 'USD strength on delayed cut cycle.' },
+    { id: 'mkt_wti', symbol: 'WTI_CRUDE', name: 'WTI Light Sweet Crude', price: '—', change: '—', source: 'twelve_data', age: 0, bias: 'BULLISH' as const, note: 'EIA draw -3.4M bbl vs +1.2M consensus.' },
+    { id: 'mkt_spx', symbol: 'SPX_INDEX', name: 'S&P 500 Index', price: '—', change: '—', source: 'finnhub', age: 0, bias: 'NEUTRAL' as const, note: 'Earnings season support. Fed rate sensitivity.' },
   ];
 
   const shortPositions = [
