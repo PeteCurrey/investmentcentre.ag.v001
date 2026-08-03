@@ -55,4 +55,17 @@ describe('packages/adapters (Phase 1 Ingestion Adapters)', () => {
       expect(health.state).toBeDefined();
     });
   });
+
+  it('handles unbuilt registered sources cleanly by returning NOT_CONNECTED state without throwing', async () => {
+    const unbuiltIds = ['nasdaq_ipo_calendar', 'opencorporates', 'polymarket', 'manifold'];
+    for (const id of unbuiltIds) {
+      const adapter = createAdapter(id);
+      expect(adapter.sourceId).toBe(id);
+      const health = await adapter.health();
+      expect(health.state).toBe('NOT_CONNECTED');
+      const fetchRes = await adapter.fetch();
+      expect(fetchRes.success).toBe(false);
+    }
+  });
 });
+

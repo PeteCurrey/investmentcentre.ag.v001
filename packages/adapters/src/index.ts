@@ -1,4 +1,5 @@
 export * from './base';
+export * from './unbuilt';
 export * from './fred';
 export * from './twelve_data';
 export * from './sec_edgar';
@@ -13,6 +14,7 @@ export * from './companies_house';
 export * from './gleif';
 
 import { Adapter } from './base';
+import { UnbuiltAdapter } from './unbuilt';
 import { FredAdapter } from './fred';
 import { TwelveDataAdapter } from './twelve_data';
 import { SecEdgarAdapter } from './sec_edgar';
@@ -40,7 +42,13 @@ export function createAdapter(sourceId: string): Adapter {
     case 'us_treasury_fiscal':  return new UsTreasuryFiscalAdapter();
     case 'companies_house':     return new CompaniesHouseAdapter();
     case 'gleif':               return new GleifAdapter();
+    case 'nasdaq_ipo_calendar':
+    case 'opencorporates':
+    case 'polymarket':
+    case 'manifold':
+      return new UnbuiltAdapter(sourceId);
     default:
-      throw new Error(`Unknown adapter sourceId: '${sourceId}'`);
+      return new UnbuiltAdapter(sourceId);
   }
 }
+
