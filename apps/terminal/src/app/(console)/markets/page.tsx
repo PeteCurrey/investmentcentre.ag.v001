@@ -12,6 +12,10 @@ export default function MarketsPage() {
     { id: 'mkt_spx', symbol: 'SPX_INDEX', name: 'S&P 500 Index', price: '—', change: '—', source: 'finnhub', age: 0, bias: 'NEUTRAL' as const, note: 'Earnings season support. Fed rate sensitivity.' },
   ];
 
+  // DEMO DATA: The fca_short_positions adapter has a real schema, validate(), and normalise()
+  // pipeline, but its fetch() returns a hardcoded object — it never calls the FCA register.
+  // BOO.L/GLG Partners is not even in the adapter; it exists only here.
+  // Both rows are seed data and must be labelled as such.
   const shortPositions = [
     { id: 'mkt_short_asos', company: 'ASOS PLC', ticker: 'ASC.L', netShortPct: '7.85%', manager: 'Marshall Wace LLP', date: '2026-08-01', severity: 'HIGH' },
     { id: 'mkt_short_boohoo', company: 'BOOHOO GROUP PLC', ticker: 'BOO.L', netShortPct: '5.40%', manager: 'GLG Partners', date: '2026-08-01', severity: 'MEDIUM' },
@@ -122,9 +126,21 @@ export default function MarketsPage() {
           fontFamily: '"DM Mono", monospace',
           fontWeight: 700,
           borderBottom: '1px solid #E4E4DF',
-          color: '#1C3A5E'
+          color: '#1C3A5E',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
         }}>
           FCA UK NET SHORT POSITIONS REGISTER — CLICK FOR FULL ANALYSIS
+          <span style={{
+            padding: '2px 8px',
+            backgroundColor: '#FEF3C7',
+            color: '#92400E',
+            fontWeight: 700,
+            fontSize: '10px',
+            border: '1px solid #FCD34D',
+            letterSpacing: '0.05em'
+          }}>DEMO — ADAPTER NOT CONNECTED TO LIVE FCA REGISTER</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {shortPositions.map((s, idx) => (
@@ -170,6 +186,15 @@ export default function MarketsPage() {
                   <div style={{ textAlign: 'right', fontSize: '11px', fontFamily: '"DM Mono", monospace', color: '#6B7280' }}>
                     Disclosed: {s.date}
                   </div>
+                  <span style={{
+                    padding: '1px 4px',
+                    border: '1px solid #FCD34D',
+                    backgroundColor: '#FEF3C7',
+                    color: '#92400E',
+                    fontFamily: '"DM Mono", monospace',
+                    fontWeight: 700,
+                    fontSize: '10px',
+                  }}>DEMO</span>
                   <span style={{
                     padding: '3px 10px',
                     backgroundColor: s.severity === 'HIGH' ? '#FEE2E2' : '#FEF3C7',
