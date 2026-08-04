@@ -5,7 +5,7 @@ import path from 'path';
 
 const STATE_PATH = path.join(process.cwd(), 'autotrader_state.json');
 
-export interface AutotraderState {
+interface AutotraderState {
   enabled: boolean;
   lastToggled: string;
   cycleCount: number;
@@ -15,7 +15,7 @@ export interface AutotraderState {
   lastPrice: string | null;
 }
 
-export async function readAutotraderState(): Promise<AutotraderState> {
+async function readAutotraderState(): Promise<AutotraderState> {
   try {
     return JSON.parse(await fs.readFile(STATE_PATH, 'utf-8'));
   } catch {
