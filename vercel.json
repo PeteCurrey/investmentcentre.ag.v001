@@ -1,8 +1,0 @@
-{
-  "version": 2,
-  "buildCommand": "npm run build --workspace=@meridian/terminal",
-  "outputDirectory": "apps/terminal/.next",
-  "installCommand": "npm install",
-  "framework": "nextjs",
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- apps/terminal packages"
-}
