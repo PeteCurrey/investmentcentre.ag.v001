@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "buildCommand": "cd ../.. && npm run build --workspaces --if-present",
+  "buildCommand": "cd ../.. && npx turbo build --filter=@meridian/terminal...",
   "installCommand": "cd ../.. && npm install",
   "outputDirectory": ".next"
 }
