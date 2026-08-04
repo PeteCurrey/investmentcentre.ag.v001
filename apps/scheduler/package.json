@@ -9,7 +9,12 @@
   },
   "dependencies": {
     "@meridian/core": "*",
-    "@meridian/registry": "*"
+    "@meridian/registry": "*",
+    "@meridian/execute": "*",
+    "@meridian/risk": "*",
+    "@meridian/automation": "*",
+    "@meridian/adapters": "*",
+    "@meridian/delta": "*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
