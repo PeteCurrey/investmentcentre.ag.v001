@@ -3,68 +3,88 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import TradingViewChart from '../../../components/TradingViewChart';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface Instrument {
   symbol: string; tvSymbol: string; price: string; change: string;
   spread: string; oandaId: string; digits: number;
 }
-
 interface ExecLogEntry {
   id: string; timestamp: string; type: 'AUTO' | 'MANUAL';
   instrument: string; direction: 'BUY' | 'SELL';
   units: string; fillPrice: string; closePrice?: string;
   pnl?: string; pnlSign?: string; pnlPositive?: boolean;
   status: string; orderId: string; tier: string;
-  signal?: string | null;
-  closedAt?: string;
+  signal?: string | null; closedAt?: string;
 }
-
 interface Position {
   id: string; instrument: string; direction: string; units: string;
   entryPrice: string; unrealizedPL: string; pnlSign: string;
-  pnlPositive: boolean; openedAt: string; tradeId: string;
-  financing: string;
+  pnlPositive: boolean; openedAt: string; tradeId: string; financing: string;
 }
-
 interface AccountSummary {
   balance: string; nav: string; unrealizedPL: string;
   pnlPositive: boolean; openTradesCount: number; currency: string;
 }
-
 interface AutotraderState {
   enabled: boolean; lastToggled: string; cycleCount: number;
   lastSignal: string | null; lastInstrument: string | null;
   lastDirection: string | null; lastPrice: string | null;
+  autoStopAt: string | null; autoStopLabel: string | null;
 }
-
 interface AiAnalysis {
   rating: string; rrRatio: string; rsiContext: string;
   macdContext: string; bbContext: string; consensusScore: string;
   keyRisk: string; summary: string;
 }
 
-// ─── Static Catalogue ─────────────────────────────────────────────────────────
+// ─── Constants ──────────────────────────────────────────────────────────────
 
 const INSTRUMENTS: Instrument[] = [
   { symbol: 'GBP/USD', tvSymbol: 'OANDA:GBPUSD',    price: '—', change: '—', spread: '—', oandaId: 'GBP_USD',    digits: 5 },
-  { symbol: 'EUR/USD', tvSymbol: 'OANDA:EURUSD',    price: '—', change: '—', spread: '—', oandaId: 'EUR_USD',    digits: 5 },
-  { symbol: 'USD/JPY', tvSymbol: 'OANDA:USDJPY',    price: '—', change: '—', spread: '—', oandaId: 'USD_JPY',    digits: 3 },
-  { symbol: 'EUR/GBP', tvSymbol: 'OANDA:EURGBP',    price: '—', change: '—', spread: '—', oandaId: 'EUR_GBP',    digits: 5 },
-  { symbol: 'WTI Oil', tvSymbol: 'TVC:USOIL',       price: '—', change: '—', spread: '—', oandaId: 'BCO_USD',    digits: 2 },
-  { symbol: 'SPX 500', tvSymbol: 'FOREXCOM:SPXUSD', price: '—', change: '—', spread: '—', oandaId: 'SPX500_USD', digits: 1 },
-  { symbol: 'BTC/USD', tvSymbol: 'COINBASE:BTCUSD', price: '—', change: '—', spread: '—', oandaId: 'BTC_USD',    digits: 2 },
-  { symbol: 'XAU/USD', tvSymbol: 'OANDA:XAUUSD',    price: '—', change: '—', spread: '—', oandaId: 'XAU_USD',    digits: 2 },
+  { symbol: 'EUR/USD', tvSymbol: 'OANDA:EURUSD',     price: '—', change: '—', spread: '—', oandaId: 'EUR_USD',    digits: 5 },
+  { symbol: 'USD/JPY', tvSymbol: 'OANDA:USDJPY',     price: '—', change: '—', spread: '—', oandaId: 'USD_JPY',    digits: 3 },
+  { symbol: 'EUR/GBP', tvSymbol: 'OANDA:EURGBP',     price: '—', change: '—', spread: '—', oandaId: 'EUR_GBP',    digits: 5 },
+  { symbol: 'WTI Oil', tvSymbol: 'TVC:USOIL',        price: '—', change: '—', spread: '—', oandaId: 'BCO_USD',    digits: 2 },
+  { symbol: 'SPX 500', tvSymbol: 'FOREXCOM:SPXUSD',  price: '—', change: '—', spread: '—', oandaId: 'SPX500_USD', digits: 1 },
+  { symbol: 'BTC/USD', tvSymbol: 'COINBASE:BTCUSD',  price: '—', change: '—', spread: '—', oandaId: 'BTC_USD',    digits: 2 },
+  { symbol: 'XAU/USD', tvSymbol: 'OANDA:XAUUSD',     price: '—', change: '—', spread: '—', oandaId: 'XAU_USD',    digits: 2 },
 ];
 
 const TIMEFRAMES = [
   { label: '1m', value: '1' }, { label: '5m', value: '5' },
   { label: '15m', value: '15' }, { label: '1H', value: '60' },
   { label: '4H', value: '240' }, { label: '1D', value: 'D' },
-  { label: '1W', value: 'W' },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+/** Session presets expressed as offsets from current UTC day */
+const SESSION_PRESETS = [
+  { label: 'London Close',  description: '17:00 UTC',  utcHour: 17, utcMin: 0 },
+  { label: 'NY Close',      description: '21:00 UTC',  utcHour: 21, utcMin: 0 },
+  { label: 'Tokyo Close',   description: '08:00 UTC',  utcHour: 8,  utcMin: 0 },
+  { label: 'End of Day',    description: '23:59 UTC',  utcHour: 23, utcMin: 59 },
+];
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function buildStopTime(utcHour: number, utcMin: number): string {
+  const now = new Date();
+  const stop = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHour, utcMin, 0));
+  // If that time is in the past today, push to tomorrow
+  if (stop <= now) stop.setUTCDate(stop.getUTCDate() + 1);
+  return stop.toISOString();
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return '0s';
+  const totalSecs = Math.floor(ms / 1000);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
 
 const ratingColor = (r: string) => {
   if (r.includes('HIGH CONVICTION BUY'))  return { bg: '#DCFCE7', text: '#166534', border: '#86EFAC' };
@@ -75,51 +95,56 @@ const ratingColor = (r: string) => {
   return { bg: '#F7F7F5', text: '#6B7280', border: '#E4E4DF' };
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export default function TradePage() {
-  // Instrument state
+  // Instrument
   const [instruments, setInstruments]     = useState<Instrument[]>(INSTRUMENTS);
   const [selectedSymbol, setSelectedSymbol] = useState('XAU/USD');
   const [timeframe, setTimeframe]         = useState('15');
 
-  // Order state
+  // Order
   const [direction, setDirection]         = useState<'BUY' | 'SELL'>('BUY');
   const [units, setUnits]                 = useState('10000');
   const [stopLoss, setStopLoss]           = useState('');
   const [takeProfit, setTakeProfit]       = useState('');
   const [orderType, setOrderType]         = useState<'MARKET' | 'LIMIT'>('MARKET');
   const [limitPrice, setLimitPrice]       = useState('');
-
-  // Execution state
   const [executing, setExecuting]         = useState(false);
   const [execMsg, setExecMsg]             = useState<{ ok: boolean; text: string } | null>(null);
 
-  // AI analysis
+  // AI
   const [aiLoading, setAiLoading]         = useState(false);
   const [aiAnalysis, setAiAnalysis]       = useState<AiAnalysis | null>(null);
   const [aiError, setAiError]             = useState<string | null>(null);
 
-  // OANDA live data
+  // OANDA
   const [positions, setPositions]         = useState<Position[]>([]);
   const [execLog, setExecLog]             = useState<ExecLogEntry[]>([]);
   const [account, setAccount]             = useState<AccountSummary | null>(null);
   const [oandaError, setOandaError]       = useState<string | null>(null);
   const [lastRefresh, setLastRefresh]     = useState<string>('—');
 
-  // Auto-trader
+  // Autotrader
   const [autotrader, setAutotrader]       = useState<AutotraderState | null>(null);
   const [autoToggling, setAutoToggling]   = useState(false);
-  const [countdown, setCountdown]         = useState(60);
-  const countdownRef                       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [cycleCountdown, setCycleCountdown] = useState(60); // seconds until next eval cycle
+  const cycleRef                          = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Expanded log row
+  // Schedule UI
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [customStopTime, setCustomStopTime] = useState('');
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
+  // UI
   const [expandedRow, setExpandedRow]     = useState<string | null>(null);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
 
   const inst = instruments.find(i => i.symbol === selectedSymbol) || instruments[0];
   const tier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
+  const mono: React.CSSProperties = { fontFamily: '"DM Mono", "Fira Mono", monospace' };
 
-  // ── Data fetching ──
+  // ── Data fetching ──────────────────────────────────────────────────────────
 
   const fetchOandaData = useCallback(async () => {
     try {
@@ -135,9 +160,7 @@ export default function TradePage() {
         setOandaError(data.error || 'OANDA data unavailable');
       }
       setLastRefresh(new Date().toLocaleTimeString());
-    } catch (e: any) {
-      setOandaError(e.message);
-    }
+    } catch (e: any) { setOandaError(e.message); }
   }, []);
 
   const fetchAutotraderState = useCallback(async () => {
@@ -151,7 +174,7 @@ export default function TradePage() {
 
   const fetchPrices = useCallback(async () => {
     try {
-      const res = await fetch('/api/prices');
+      const res  = await fetch('/api/prices');
       const data = await res.json();
       if (data?.prices) {
         setInstruments(prev => prev.map(i =>
@@ -175,22 +198,26 @@ export default function TradePage() {
     return () => clearInterval(poll);
   }, [fetchOandaData, fetchPrices, fetchAutotraderState]);
 
-  // Countdown timer when autotrader is enabled
+  // Cycle countdown — ONLY shows time until next eval. Auto mode stays ON permanently.
   useEffect(() => {
-    if (countdownRef.current) clearInterval(countdownRef.current);
+    if (cycleRef.current) clearInterval(cycleRef.current);
     if (autotrader?.enabled) {
-      setCountdown(60);
-      countdownRef.current = setInterval(() => {
-        setCountdown(c => {
-          if (c <= 1) { fetchOandaData(); fetchAutotraderState(); return 60; }
+      setCycleCountdown(60);
+      cycleRef.current = setInterval(() => {
+        setCycleCountdown(c => {
+          if (c <= 1) {
+            fetchOandaData();
+            fetchAutotraderState();
+            return 60;
+          }
           return c - 1;
         });
       }, 1000);
     }
-    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+    return () => { if (cycleRef.current) clearInterval(cycleRef.current); };
   }, [autotrader?.enabled, fetchOandaData, fetchAutotraderState]);
 
-  // ── Handlers ──
+  // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleToggleAutotrader = useCallback(async () => {
     if (!autotrader || autoToggling) return;
@@ -199,7 +226,7 @@ export default function TradePage() {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !autotrader.enabled })
+        body: JSON.stringify({ enabled: !autotrader.enabled }),
       });
       const data = await res.json();
       if (data.success) setAutotrader(data);
@@ -207,17 +234,43 @@ export default function TradePage() {
     setAutoToggling(false);
   }, [autotrader, autoToggling]);
 
+  const handleSetSchedule = useCallback(async (isoTime: string, label: string) => {
+    setSavingSchedule(true);
+    try {
+      const res = await fetch('/api/autotrader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoStopAt: isoTime, autoStopLabel: label }),
+      });
+      const data = await res.json();
+      if (data.success) setAutotrader(data);
+    } catch {}
+    setSavingSchedule(false);
+  }, []);
+
+  const handleClearSchedule = useCallback(async () => {
+    setSavingSchedule(true);
+    try {
+      const res = await fetch('/api/autotrader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoStopAt: null, autoStopLabel: null }),
+      });
+      const data = await res.json();
+      if (data.success) setAutotrader(data);
+    } catch {}
+    setSavingSchedule(false);
+  }, []);
+
   const handleExecute = useCallback(async () => {
-    setExecuting(true);
-    setExecMsg(null);
+    setExecuting(true); setExecMsg(null);
     try {
       const res = await fetch('/api/trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           instrument: inst.symbol, direction, units, stopLoss, takeProfit,
-          orderType, limitPrice,
-          currentPrice: inst.price === '—' ? undefined : inst.price,
+          orderType, limitPrice, currentPrice: inst.price === '—' ? undefined : inst.price,
         }),
       });
       const data = await res.json() as { error?: string; fillPrice?: string; orderId?: string };
@@ -227,9 +280,7 @@ export default function TradePage() {
         setExecMsg({ ok: true, text: `ORDER FILLED — ${direction} ${Number(units).toLocaleString()} ${inst.symbol} @ ${data.fillPrice || 'MARKET'} | ID: ${data.orderId}` });
         setTimeout(() => fetchOandaData(), 2000);
       }
-    } catch (e: any) {
-      setExecMsg({ ok: false, text: `Network error: ${e.message}` });
-    }
+    } catch (e: any) { setExecMsg({ ok: false, text: `Network error: ${e.message}` }); }
     setExecuting(false);
   }, [inst, direction, units, stopLoss, takeProfit, orderType, limitPrice, fetchOandaData]);
 
@@ -250,11 +301,12 @@ export default function TradePage() {
 
   const aColor = aiAnalysis ? ratingColor(aiAnalysis.rating) : null;
 
-  // ── Shared styles ──
-  const mono: React.CSSProperties = { fontFamily: '"DM Mono", "Fira Mono", monospace' };
-  const card: React.CSSProperties = { border: '1px solid #E4E4DF', backgroundColor: '#FFFFFF' };
+  // ── Auto-stop time remaining ───────────────────────────────────────────────
+  const stopMsRemaining = autotrader?.autoStopAt
+    ? Math.max(0, new Date(autotrader.autoStopAt).getTime() - Date.now())
+    : null;
 
-  // ── Render ──
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', ...mono, color: '#14181B', fontSize: '13px' }}>
 
@@ -266,27 +318,88 @@ export default function TradePage() {
           </div>
           <h1 style={{ fontSize: '22px', fontWeight: 500, letterSpacing: '-0.5px', margin: 0, color: '#14181B' }}>Trade</h1>
         </div>
-        {/* Tier 4 badge */}
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '10px',
-          padding: '5px 12px', border: `1px solid ${tier4Active ? '#86EFAC' : '#FCA5A5'}`,
-          backgroundColor: tier4Active ? '#F0FDF4' : '#FEF2F2',
-          color: tier4Active ? '#166534' : '#991B1B',
-        }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: tier4Active ? '#22C55E' : '#EF4444', boxShadow: tier4Active ? '0 0 6px #22C55E' : 'none' }} />
-          {tier4Active ? 'LIVE EXECUTION — TIER 4 ACTIVE' : 'OBSERVE MODE — TIER 4 DISABLED'}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setShowHowItWorks(v => !v)}
+            style={{ padding: '5px 12px', border: '1px solid #1C3A5E', backgroundColor: showHowItWorks ? '#1C3A5E' : 'transparent', color: showHowItWorks ? '#FFFFFF' : '#1C3A5E', fontSize: '9px', cursor: 'pointer', ...mono, letterSpacing: '0.5px' }}
+          >
+            {showHowItWorks ? '▲ HIDE' : '▼ HOW IT WORKS'}
+          </button>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '10px',
+            padding: '5px 12px', border: `1px solid ${tier4Active ? '#86EFAC' : '#FCA5A5'}`,
+            backgroundColor: tier4Active ? '#F0FDF4' : '#FEF2F2',
+            color: tier4Active ? '#166534' : '#991B1B',
+          }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', display: 'inline-block', backgroundColor: tier4Active ? '#22C55E' : '#EF4444', boxShadow: tier4Active ? '0 0 6px #22C55E' : 'none' }} />
+            {tier4Active ? 'LIVE EXECUTION — TIER 4 ACTIVE' : 'OBSERVE MODE — TIER 4 DISABLED'}
+          </div>
         </div>
       </div>
+
+      {/* ── HOW IT WORKS panel ── */}
+      {showHowItWorks && (
+        <div style={{ border: '1px solid #1C3A5E', backgroundColor: '#F0F4FF', padding: '18px 20px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: '#1C3A5E', letterSpacing: '1px', marginBottom: '14px', borderBottom: '1px solid #BFDBFE', paddingBottom: '8px' }}>
+            AUTONOMOUS ENGINE — SIGNAL PIPELINE &amp; DECISION LOGIC
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '10px', lineHeight: 1.8, color: '#374151' }}>
+
+            <div>
+              <div style={{ fontWeight: 700, color: '#1C3A5E', marginBottom: '6px', fontSize: '10px', borderLeft: '3px solid #1C3A5E', paddingLeft: '8px' }}>
+                1. INSTRUMENT SELECTION
+              </div>
+              <div style={{ color: '#4B5563' }}>
+                The scheduler (<code style={{ fontSize: '9px', backgroundColor: '#DBEAFE', padding: '1px 4px' }}>apps/scheduler</code>) runs every <strong>60 seconds</strong>. It currently evaluates <strong>GBP/USD</strong> using the momentum signal below. Instrument selection is governed by the <code style={{ fontSize: '9px', backgroundColor: '#DBEAFE', padding: '1px 4px' }}>AutomationRule</code> in <code style={{ fontSize: '9px', backgroundColor: '#DBEAFE', padding: '1px 4px' }}>packages/automation</code> — each rule has a fixed <code>targetInstrument</code>. To add more instruments, add rules in the scheduler.
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 700, color: '#1C3A5E', marginBottom: '6px', fontSize: '10px', borderLeft: '3px solid #16A34A', paddingLeft: '8px' }}>
+                2. SIGNAL &amp; DIRECTION LOGIC
+              </div>
+              <div style={{ color: '#4B5563' }}>
+                Each cycle:
+                <ol style={{ margin: '4px 0 0 14px', padding: 0 }}>
+                  <li>Fetch live GBP/USD spot via <strong>TwelveData API</strong></li>
+                  <li>Compare to <em>previous cycle price</em> — if price is up → <strong>BUY</strong>, down → <strong>SELL</strong></li>
+                  <li>On first cycle (no prior price): use <strong>time-of-day session bias</strong> (London 06–14 UTC = BUY, NY close = SELL)</li>
+                  <li>Pip delta and direction are written to the execution log as the <em>reasoning string</em></li>
+                </ol>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 700, color: '#1C3A5E', marginBottom: '6px', fontSize: '10px', borderLeft: '3px solid #DC2626', paddingLeft: '8px' }}>
+                3. RISK GATE &amp; EXECUTION
+              </div>
+              <div style={{ color: '#4B5563' }}>
+                Before any order is sent, the signal passes through <strong>RiskGate</strong> (<code style={{ fontSize: '9px', backgroundColor: '#FEE2E2', padding: '1px 4px' }}>packages/risk</code>) which enforces:
+                <ul style={{ margin: '4px 0 0 14px', padding: 0 }}>
+                  <li>Daily loss limit (FTMO Standard Profile)</li>
+                  <li>Max open position count</li>
+                  <li>Session blackout windows</li>
+                  <li>Order sizing validation</li>
+                </ul>
+                If approved, a <strong>cryptographic HMAC token</strong> is issued and the order is submitted to <strong>OANDA v20 REST API</strong> via <code style={{ fontSize: '9px', backgroundColor: '#FEE2E2', padding: '1px 4px' }}>OandaBrokerAdapter</code>.
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: '#DBEAFE', border: '1px solid #93C5FD', fontSize: '9px', color: '#1E40AF', lineHeight: 1.7 }}>
+            <strong>DATA FLOW:</strong> TwelveData API → Scheduler (momentum signal) → AutomationEngine (rule evaluation) → RiskGate (FTMO risk checks + HMAC approval) → OandaBrokerAdapter → OANDA v20 REST → Execution log (OANDA /trades endpoint) → This dashboard (live polling every 30s)
+          </div>
+        </div>
+      )}
 
       {/* ── Account Summary Strip ── */}
       {account && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: '#E4E4DF' }}>
           {[
-            { label: 'BALANCE', value: `${account.currency} ${Number(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
+            { label: 'BALANCE',       value: `${account.currency} ${Number(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
             { label: 'NET ASSET VALUE', value: `${account.currency} ${Number(account.nav).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
             { label: 'UNREALIZED P&L', value: `${account.pnlPositive ? '+' : '-'}${account.currency} ${account.unrealizedPL}`, positive: account.pnlPositive },
-            { label: 'OPEN TRADES', value: String(account.openTradesCount), positive: true },
-            { label: 'ACCOUNT', value: 'PRACTICE', positive: true }
+            { label: 'OPEN TRADES',   value: String(account.openTradesCount), positive: true },
+            { label: 'ACCOUNT',       value: 'PRACTICE', positive: true },
           ].map(({ label, value, positive }) => (
             <div key={label} style={{ backgroundColor: '#FAFAFA', padding: '10px 14px' }}>
               <div style={{ fontSize: '9px', color: '#6B7280', letterSpacing: '1px', marginBottom: '4px' }}>{label}</div>
@@ -298,83 +411,172 @@ export default function TradePage() {
 
       {/* ── Auto-Trading Control Panel ── */}
       <div style={{
-        border: autotrader?.enabled ? '1px solid #C8F135' : '1px solid #E4E4DF',
+        border: autotrader?.enabled ? '2px solid #C8F135' : '1px solid #E4E4DF',
         backgroundColor: autotrader?.enabled ? '#0F172A' : '#F7F7F5',
-        padding: '14px 18px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        flexWrap: 'wrap', gap: '12px',
-        transition: 'all 0.3s ease'
+        transition: 'all 0.3s ease',
       }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
-              backgroundColor: autotrader?.enabled ? '#C8F135' : '#6B7280',
-              boxShadow: autotrader?.enabled ? '0 0 10px #C8F135, 0 0 20px rgba(200,241,53,0.4)' : 'none',
-              animation: autotrader?.enabled ? 'pulse 2s infinite' : 'none'
-            }} />
-            <span style={{ fontSize: '12px', fontWeight: 700, color: autotrader?.enabled ? '#C8F135' : '#6B7280', letterSpacing: '1px' }}>
-              AUTONOMOUS ENGINE: {autotrader?.enabled ? 'ACTIVE' : 'PAUSED'}
-            </span>
+        {/* Main control row */}
+        <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+
+          {/* Status + info */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
+                backgroundColor: autotrader?.enabled ? '#C8F135' : '#6B7280',
+                boxShadow: autotrader?.enabled ? '0 0 10px #C8F135, 0 0 20px rgba(200,241,53,0.4)' : 'none',
+                animation: autotrader?.enabled ? 'pulse 2s infinite' : 'none',
+              }} />
+              <span style={{ fontSize: '12px', fontWeight: 700, color: autotrader?.enabled ? '#C8F135' : '#6B7280', letterSpacing: '1px' }}>
+                AUTONOMOUS ENGINE: {autotrader?.enabled ? 'ACTIVE' : 'PAUSED'}
+              </span>
+            </div>
+
+            {autotrader?.enabled && (
+              <div style={{ fontSize: '10px', color: '#94A3B8', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <div>
+                  <span style={{ color: '#64748B' }}>STRATEGY: </span>
+                  <span style={{ color: '#E2E8F0' }}>Momentum Signal · GBP/USD · FTMO Standard Risk Profile · Size: 1,000 units</span>
+                </div>
+                {autotrader.lastSignal && (
+                  <div>
+                    <span style={{ color: '#64748B' }}>LAST SIGNAL: </span>
+                    <span style={{ color: autotrader.lastDirection === 'BUY' ? '#4ADE80' : '#F87171' }}>
+                      {autotrader.lastDirection} {autotrader.lastInstrument} @ {autotrader.lastPrice}
+                    </span>
+                    <span style={{ color: '#64748B' }}> · {autotrader.lastSignal}</span>
+                  </div>
+                )}
+                {autotrader.cycleCount > 0 && (
+                  <div>
+                    <span style={{ color: '#64748B' }}>CYCLES COMPLETED: </span>
+                    <span style={{ color: '#E2E8F0' }}>{autotrader.cycleCount}</span>
+                  </div>
+                )}
+                {autotrader.autoStopLabel && stopMsRemaining !== null && stopMsRemaining > 0 && (
+                  <div>
+                    <span style={{ color: '#64748B' }}>AUTO-STOP: </span>
+                    <span style={{ color: '#FCD34D' }}>{autotrader.autoStopLabel}</span>
+                    <span style={{ color: '#64748B' }}> · in {formatCountdown(stopMsRemaining)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!autotrader?.enabled && (
+              <div style={{ fontSize: '10px', color: '#6B7280', paddingLeft: '18px' }}>
+                Engine is <strong>OFF</strong> — toggle to start autonomous evaluation every 60s · RiskGate enforced · Orders go to OANDA practice account
+              </div>
+            )}
           </div>
 
-          {autotrader?.enabled && (
-            <div style={{ fontSize: '10px', color: '#94A3B8', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-              <div>
-                <span style={{ color: '#64748B' }}>STRATEGY: </span>
-                <span style={{ color: '#E2E8F0' }}>Consensus Council Breakout · GBP/USD · FTMO Standard Profile</span>
+          {/* Right: cycle timer + toggle + schedule */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexShrink: 0 }}>
+            {autotrader?.enabled && (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#C8F135', lineHeight: 1 }}>{cycleCountdown}s</div>
+                <div style={{ fontSize: '9px', color: '#64748B', letterSpacing: '1px', marginTop: '2px' }}>NEXT EVAL CYCLE</div>
+                <div style={{ fontSize: '8px', color: '#475569', marginTop: '1px' }}>engine stays ON</div>
               </div>
-              {autotrader.lastSignal && (
-                <div>
-                  <span style={{ color: '#64748B' }}>LAST SIGNAL: </span>
-                  <span style={{ color: autotrader.lastDirection === 'BUY' ? '#4ADE80' : '#F87171' }}>
-                    {autotrader.lastDirection} {autotrader.lastInstrument} @ {autotrader.lastPrice}
-                  </span>
-                  <span style={{ color: '#64748B' }}> · {autotrader.lastSignal}</span>
-                </div>
-              )}
-              {autotrader.cycleCount > 0 && (
-                <div>
-                  <span style={{ color: '#64748B' }}>CYCLES EXECUTED: </span>
-                  <span style={{ color: '#E2E8F0' }}>{autotrader.cycleCount}</span>
-                </div>
-              )}
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <button
+                onClick={handleToggleAutotrader}
+                disabled={autoToggling || !autotrader}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: autotrader?.enabled ? '#DC2626' : '#16A34A',
+                  color: '#FFFFFF', border: 'none',
+                  cursor: autoToggling ? 'wait' : 'pointer',
+                  fontSize: '11px', fontWeight: 700, ...mono,
+                  letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                  transition: 'all 0.2s ease', minWidth: '140px',
+                }}
+              >
+                {autoToggling ? '...' : autotrader?.enabled ? '⏹ PAUSE ENGINE' : '▶ START ENGINE'}
+              </button>
+              <button
+                onClick={() => setShowScheduler(v => !v)}
+                style={{
+                  padding: '5px 10px', border: '1px solid',
+                  borderColor: autotrader?.autoStopAt ? '#FCD34D' : (autotrader?.enabled ? '#334155' : '#D1D5DB'),
+                  backgroundColor: autotrader?.autoStopAt ? '#FEF3C7' : 'transparent',
+                  color: autotrader?.autoStopAt ? '#92400E' : (autotrader?.enabled ? '#94A3B8' : '#6B7280'),
+                  fontSize: '9px', cursor: 'pointer', ...mono, letterSpacing: '0.5px',
+                }}
+              >
+                {autotrader?.autoStopLabel ? `⏰ ${autotrader.autoStopLabel}` : '⏰ SET SCHEDULE'}
+              </button>
             </div>
-          )}
-
-          {!autotrader?.enabled && (
-            <div style={{ fontSize: '10px', color: '#6B7280', paddingLeft: '18px' }}>
-              Enable to start autonomous position evaluation every 60s · RiskGate enforced · OANDA practice
-            </div>
-          )}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexShrink: 0 }}>
-          {autotrader?.enabled && (
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '22px', fontWeight: 700, color: '#C8F135', lineHeight: 1 }}>{countdown}s</div>
-              <div style={{ fontSize: '9px', color: '#64748B', letterSpacing: '1px', marginTop: '2px' }}>NEXT EVAL</div>
+        {/* ── Schedule Panel ── */}
+        {showScheduler && (
+          <div style={{
+            borderTop: `1px solid ${autotrader?.enabled ? '#1E293B' : '#E4E4DF'}`,
+            padding: '14px 18px',
+            backgroundColor: autotrader?.enabled ? '#0A0D12' : '#FFFFFF',
+          }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: autotrader?.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '10px' }}>
+              AUTO-STOP SCHEDULE — engine pauses automatically at the selected time
             </div>
-          )}
-          <button
-            onClick={handleToggleAutotrader}
-            disabled={autoToggling || !autotrader}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: autotrader?.enabled ? '#DC2626' : '#16A34A',
-              color: '#FFFFFF',
-              border: 'none',
-              cursor: autoToggling ? 'wait' : 'pointer',
-              fontSize: '11px', fontWeight: 700,
-              fontFamily: '"DM Mono", monospace',
-              letterSpacing: '1px',
-              opacity: autoToggling ? 0.7 : 1,
-              transition: 'all 0.2s ease',
-              minWidth: '140px'
-            }}
-          >
-            {autoToggling ? '...' : autotrader?.enabled ? '⏹ PAUSE ENGINE' : '▶ START ENGINE'}
-          </button>
-        </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              {SESSION_PRESETS.map(preset => (
+                <button
+                  key={preset.label}
+                  disabled={savingSchedule}
+                  onClick={() => handleSetSchedule(buildStopTime(preset.utcHour, preset.utcMin), `${preset.label} ${preset.description}`)}
+                  style={{
+                    padding: '7px 12px', border: '1px solid',
+                    borderColor: autotrader?.autoStopLabel?.startsWith(preset.label) ? '#F59E0B' : '#D1D5DB',
+                    backgroundColor: autotrader?.autoStopLabel?.startsWith(preset.label) ? '#FEF3C7' : '#F9FAFB',
+                    color: autotrader?.autoStopLabel?.startsWith(preset.label) ? '#92400E' : '#374151',
+                    fontSize: '10px', cursor: 'pointer', ...mono,
+                  }}
+                >
+                  {preset.label}<br />
+                  <span style={{ fontSize: '8px', color: '#6B7280' }}>{preset.description}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="time"
+                value={customStopTime}
+                onChange={e => setCustomStopTime(e.target.value)}
+                style={{ padding: '6px 8px', border: '1px solid #D1D5DB', ...mono, fontSize: '11px', color: '#14181B' }}
+              />
+              <span style={{ fontSize: '9px', color: '#6B7280' }}>UTC</span>
+              <button
+                disabled={!customStopTime || savingSchedule}
+                onClick={() => {
+                  if (!customStopTime) return;
+                  const [h, m] = customStopTime.split(':').map(Number);
+                  handleSetSchedule(buildStopTime(h, m), `Custom ${customStopTime} UTC`);
+                }}
+                style={{ padding: '6px 12px', backgroundColor: '#1C3A5E', color: '#FFFFFF', border: 'none', fontSize: '9px', cursor: 'pointer', ...mono }}
+              >
+                SET CUSTOM TIME
+              </button>
+              {autotrader?.autoStopAt && (
+                <button
+                  onClick={handleClearSchedule}
+                  disabled={savingSchedule}
+                  style={{ padding: '6px 12px', backgroundColor: '#FEE2E2', color: '#991B1B', border: '1px solid #FCA5A5', fontSize: '9px', cursor: 'pointer', ...mono }}
+                >
+                  ✕ CLEAR SCHEDULE
+                </button>
+              )}
+            </div>
+            {autotrader?.autoStopAt && (
+              <div style={{ marginTop: '8px', fontSize: '9px', color: autotrader?.enabled ? '#94A3B8' : '#6B7280' }}>
+                Engine will auto-pause at <strong>{new Date(autotrader.autoStopAt).toLocaleString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })} UTC</strong>
+                {stopMsRemaining !== null && stopMsRemaining > 0 && ` · in ${formatCountdown(stopMsRemaining)}`}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Instrument Selector ── */}
@@ -384,10 +586,8 @@ export default function TradePage() {
           const up = i.change.startsWith('+');
           return (
             <button key={i.symbol} onClick={() => { setSelectedSymbol(i.symbol); setExecMsg(null); }} style={{
-              padding: '7px 13px',
-              backgroundColor: selected ? '#1C3A5E' : '#FFFFFF',
-              color: selected ? '#FFFFFF' : '#14181B',
-              border: `1px solid ${selected ? '#1C3A5E' : '#E4E4DF'}`,
+              padding: '7px 13px', backgroundColor: selected ? '#1C3A5E' : '#FFFFFF',
+              color: selected ? '#FFFFFF' : '#14181B', border: `1px solid ${selected ? '#1C3A5E' : '#E4E4DF'}`,
               cursor: 'pointer', ...mono, fontSize: '10px',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', minWidth: '76px',
             }}>
@@ -401,7 +601,7 @@ export default function TradePage() {
       </div>
 
       {/* ── Ticker Strip ── */}
-      <div style={{ ...card, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '10px', backgroundColor: '#F7F7F5' }}>
+      <div style={{ border: '1px solid #E4E4DF', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '10px', backgroundColor: '#F7F7F5' }}>
         <div style={{ display: 'flex', gap: '22px', flexWrap: 'wrap' }}>
           {[
             ['PAIR', inst.symbol, '#1C3A5E'],
@@ -429,10 +629,8 @@ export default function TradePage() {
         </div>
       </div>
 
-      {/* ── Main Grid: Chart + Order Panel ── */}
+      {/* ── Chart + Order Panel ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 330px', gap: '14px', alignItems: 'start' }}>
-
-        {/* Chart */}
         <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#0A0D12', display: 'flex', flexDirection: 'column' }}>
           <div style={{ backgroundColor: '#0F172A', color: '#F8FAFC', padding: '8px 14px', fontSize: '10px', borderBottom: '1px solid #1E293B', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ color: '#94A3B8' }}>TRADINGVIEW ENGINE // <span style={{ color: '#E2E8F0' }}>{inst.tvSymbol}</span></span>
@@ -441,9 +639,7 @@ export default function TradePage() {
           <TradingViewChart symbol={inst.tvSymbol} interval={timeframe} theme="dark" height={540} showSidebar />
         </div>
 
-        {/* Right Panel */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-
           {/* Order Type */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
             {(['MARKET', 'LIMIT'] as const).map(ot => (
@@ -451,98 +647,63 @@ export default function TradePage() {
                 padding: '7px', backgroundColor: orderType === ot ? '#1C3A5E' : '#F7F7F5',
                 color: orderType === ot ? '#FFFFFF' : '#6B7280',
                 border: `1px solid ${orderType === ot ? '#1C3A5E' : '#E4E4DF'}`,
-                fontSize: '10px', cursor: 'pointer', ...mono, fontWeight: 600
+                fontSize: '10px', cursor: 'pointer', ...mono, fontWeight: 600,
               }}>{ot} ORDER</button>
             ))}
           </div>
-
           {/* Direction */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
-            <button onClick={() => setDirection('BUY')} style={{
-              padding: '11px',
-              backgroundColor: direction === 'BUY' ? '#16A34A' : '#F7F7F5',
-              color: direction === 'BUY' ? '#FFFFFF' : '#6B7280',
-              border: `1px solid ${direction === 'BUY' ? '#16A34A' : '#E4E4DF'}`,
-              fontSize: '12px', cursor: 'pointer', ...mono, fontWeight: 800,
-            }}>▲ BUY</button>
-            <button onClick={() => setDirection('SELL')} style={{
-              padding: '11px',
-              backgroundColor: direction === 'SELL' ? '#DC2626' : '#F7F7F5',
-              color: direction === 'SELL' ? '#FFFFFF' : '#6B7280',
-              border: `1px solid ${direction === 'SELL' ? '#DC2626' : '#E4E4DF'}`,
-              fontSize: '12px', cursor: 'pointer', ...mono, fontWeight: 800,
-            }}>▼ SELL</button>
+            <button onClick={() => setDirection('BUY')} style={{ padding: '11px', backgroundColor: direction === 'BUY' ? '#16A34A' : '#F7F7F5', color: direction === 'BUY' ? '#FFFFFF' : '#6B7280', border: `1px solid ${direction === 'BUY' ? '#16A34A' : '#E4E4DF'}`, fontSize: '12px', cursor: 'pointer', ...mono, fontWeight: 800 }}>▲ BUY</button>
+            <button onClick={() => setDirection('SELL')} style={{ padding: '11px', backgroundColor: direction === 'SELL' ? '#DC2626' : '#F7F7F5', color: direction === 'SELL' ? '#FFFFFF' : '#6B7280', border: `1px solid ${direction === 'SELL' ? '#DC2626' : '#E4E4DF'}`, fontSize: '12px', cursor: 'pointer', ...mono, fontWeight: 800 }}>▼ SELL</button>
           </div>
-
           {/* Order Params */}
-          <div style={{ ...card, padding: '14px' }}>
+          <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#FFFFFF', padding: '14px' }}>
             <div style={{ fontSize: '10px', color: '#1C3A5E', fontWeight: 600, borderBottom: '1px solid #E4E4DF', paddingBottom: '8px', marginBottom: '10px', letterSpacing: '0.5px' }}>ORDER PARAMETERS</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '10px' }}>
               <div>
                 <label style={{ color: '#6B7280', display: 'block', marginBottom: '3px' }}>UNITS / VOLUME</label>
-                <input type="text" value={units} onChange={e => setUnits(e.target.value)}
-                  style={{ width: '100%', padding: '7px 8px', border: '1px solid #E4E4DF', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#14181B' }} />
+                <input type="text" value={units} onChange={e => setUnits(e.target.value)} style={{ width: '100%', padding: '7px 8px', border: '1px solid #E4E4DF', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#14181B' }} />
               </div>
               {orderType === 'LIMIT' && (
                 <div>
                   <label style={{ color: '#6B7280', display: 'block', marginBottom: '3px' }}>LIMIT PRICE</label>
-                  <input type="text" value={limitPrice} onChange={e => setLimitPrice(e.target.value)}
-                    placeholder={inst.price} style={{ width: '100%', padding: '7px 8px', border: '1px solid #1C3A5E', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#14181B' }} />
+                  <input type="text" value={limitPrice} onChange={e => setLimitPrice(e.target.value)} placeholder={inst.price} style={{ width: '100%', padding: '7px 8px', border: '1px solid #1C3A5E', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#14181B' }} />
                 </div>
               )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                 <div>
                   <label style={{ color: '#6B7280', display: 'block', marginBottom: '3px' }}>STOP LOSS</label>
-                  <input type="text" value={stopLoss} onChange={e => setStopLoss(e.target.value)}
-                    placeholder="e.g. 1.3050"
-                    style={{ width: '100%', padding: '7px 8px', border: '1px solid #FCA5A5', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#991B1B' }} />
+                  <input type="text" value={stopLoss} onChange={e => setStopLoss(e.target.value)} placeholder="e.g. 1.3050" style={{ width: '100%', padding: '7px 8px', border: '1px solid #FCA5A5', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#991B1B' }} />
                 </div>
                 <div>
                   <label style={{ color: '#6B7280', display: 'block', marginBottom: '3px' }}>TAKE PROFIT</label>
-                  <input type="text" value={takeProfit} onChange={e => setTakeProfit(e.target.value)}
-                    placeholder="e.g. 1.3250"
-                    style={{ width: '100%', padding: '7px 8px', border: '1px solid #86EFAC', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#166534' }} />
+                  <input type="text" value={takeProfit} onChange={e => setTakeProfit(e.target.value)} placeholder="e.g. 1.3250" style={{ width: '100%', padding: '7px 8px', border: '1px solid #86EFAC', ...mono, fontSize: '11px', boxSizing: 'border-box', color: '#166534' }} />
                 </div>
               </div>
             </div>
-
             {execMsg && (
               <div style={{ marginTop: '10px', padding: '8px', backgroundColor: execMsg.ok ? '#DCFCE7' : '#FEE2E2', border: `1px solid ${execMsg.ok ? '#86EFAC' : '#FCA5A5'}`, color: execMsg.ok ? '#166534' : '#991B1B', fontSize: '9px', lineHeight: 1.5 }}>
                 {execMsg.text}
               </div>
             )}
-
-            <button onClick={handleExecute} disabled={executing} style={{
-              width: '100%', marginTop: '10px', padding: '12px',
-              backgroundColor: direction === 'BUY' ? '#16A34A' : '#DC2626',
-              color: '#FFFFFF', border: 'none', ...mono, fontSize: '10px',
-              fontWeight: 800, letterSpacing: '1.5px',
-              cursor: executing ? 'wait' : 'pointer', opacity: executing ? 0.7 : 1,
-            }}>
+            <button onClick={handleExecute} disabled={executing} style={{ width: '100%', marginTop: '10px', padding: '12px', backgroundColor: direction === 'BUY' ? '#16A34A' : '#DC2626', color: '#FFFFFF', border: 'none', ...mono, fontSize: '10px', fontWeight: 800, letterSpacing: '1.5px', cursor: executing ? 'wait' : 'pointer', opacity: executing ? 0.7 : 1 }}>
               {executing ? 'ROUTING VIA RISK GATE...' : `SUBMIT ${direction} TO OANDA →`}
             </button>
           </div>
 
           {/* AI Co-Pilot */}
-          <div style={{ border: '1px solid #1E293B', backgroundColor: '#0F172A', color: '#F8FAFC', padding: '14px', flex: 1 }}>
+          <div style={{ border: '1px solid #1E293B', backgroundColor: '#0F172A', color: '#F8FAFC', padding: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1E293B', paddingBottom: '8px', marginBottom: '10px' }}>
               <div style={{ fontSize: '10px', fontWeight: 700, color: '#C8F135', letterSpacing: '1px' }}>AI CO-PILOT</div>
-              <button onClick={handleAnalyse} disabled={aiLoading} style={{
-                padding: '3px 8px', backgroundColor: '#1E293B', color: aiLoading ? '#6B7280' : '#C8F135',
-                border: '1px solid #334155', fontSize: '9px', ...mono, cursor: aiLoading ? 'wait' : 'pointer', letterSpacing: '0.5px',
-              }}>
+              <button onClick={handleAnalyse} disabled={aiLoading} style={{ padding: '3px 8px', backgroundColor: '#1E293B', color: aiLoading ? '#6B7280' : '#C8F135', border: '1px solid #334155', fontSize: '9px', ...mono, cursor: aiLoading ? 'wait' : 'pointer' }}>
                 {aiLoading ? 'ANALYSING...' : 'RUN ANALYSIS →'}
               </button>
             </div>
-
             {aiError && <div style={{ fontSize: '9px', color: '#F87171', marginBottom: '8px' }}>{aiError}</div>}
-
             {aiAnalysis && aColor && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ padding: '3px 8px', backgroundColor: aColor.bg, color: aColor.text, border: `1px solid ${aColor.border}`, fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px' }}>
-                    {aiAnalysis.rating}
-                  </span>
+                  <span style={{ padding: '3px 8px', backgroundColor: aColor.bg, color: aColor.text, border: `1px solid ${aColor.border}`, fontSize: '9px', fontWeight: 700 }}>{aiAnalysis.rating}</span>
                   <span style={{ color: '#94A3B8', fontSize: '9px' }}>R:R {aiAnalysis.rrRatio}</span>
                 </div>
                 <div style={{ backgroundColor: '#0A0D12', border: '1px solid #1E293B', padding: '9px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9px', color: '#CBD5E1' }}>
@@ -552,12 +713,9 @@ export default function TradePage() {
                   <div>RISK: <span style={{ color: '#FCA5A5' }}>{aiAnalysis.keyRisk}</span></div>
                   <div>CONSENSUS: <span style={{ color: '#C8F135' }}>{aiAnalysis.consensusScore}</span></div>
                 </div>
-                <p style={{ fontSize: '10px', color: '#94A3B8', lineHeight: 1.6, margin: 0, fontStyle: 'italic' }}>
-                  "{aiAnalysis.summary}"
-                </p>
+                <p style={{ fontSize: '10px', color: '#94A3B8', lineHeight: 1.6, margin: 0, fontStyle: 'italic' }}>"{aiAnalysis.summary}"</p>
               </div>
             )}
-
             {!aiAnalysis && !aiLoading && (
               <div style={{ fontSize: '10px', color: '#475569', textAlign: 'center', padding: '16px 0', lineHeight: 1.6 }}>
                 Configure trade parameters then click<br />RUN ANALYSIS for AI co-pilot evaluation.
@@ -568,7 +726,7 @@ export default function TradePage() {
       </div>
 
       {/* ── Live Open Positions ── */}
-      <div style={{ ...card }}>
+      <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#FFFFFF' }}>
         <div style={{ backgroundColor: '#0F172A', padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: '#C8F135', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '1px' }}>
           <span>● LIVE OPEN POSITIONS — OANDA {process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT?.toUpperCase() || 'PRACTICE'}</span>
           <span style={{ fontSize: '9px', color: '#475569', fontWeight: 400 }}>Refreshed {lastRefresh}</span>
@@ -597,9 +755,7 @@ export default function TradePage() {
                   </td>
                   <td style={{ padding: '10px 14px', fontWeight: 600 }}>{p.units}</td>
                   <td style={{ padding: '10px 14px' }}>{p.entryPrice}</td>
-                  <td style={{ padding: '10px 14px', fontWeight: 800, fontSize: '11px', color: p.pnlPositive ? '#16A34A' : '#DC2626' }}>
-                    {p.pnlSign}${p.unrealizedPL}
-                  </td>
+                  <td style={{ padding: '10px 14px', fontWeight: 800, fontSize: '11px', color: p.pnlPositive ? '#16A34A' : '#DC2626' }}>{p.pnlSign}${p.unrealizedPL}</td>
                   <td style={{ padding: '10px 14px', color: '#6B7280' }}>{p.financing}</td>
                   <td style={{ padding: '10px 14px', color: '#6B7280' }}>{p.openedAt}</td>
                   <td style={{ padding: '10px 14px', color: '#6B7280', fontSize: '9px' }}>{p.tradeId}</td>
@@ -611,7 +767,7 @@ export default function TradePage() {
       </div>
 
       {/* ── Execution Log ── */}
-      <div style={{ ...card }}>
+      <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#FFFFFF' }}>
         <div style={{ backgroundColor: '#F7F7F5', padding: '10px 16px', fontSize: '10px', fontWeight: 700, borderBottom: '1px solid #E4E4DF', color: '#1C3A5E', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '0.5px' }}>
           <span>EXECUTION LOG — AUTO + MANUAL TRADES</span>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -619,13 +775,11 @@ export default function TradePage() {
             <button onClick={fetchOandaData} style={{ padding: '2px 8px', backgroundColor: '#1C3A5E', color: '#FFFFFF', border: 'none', fontSize: '9px', cursor: 'pointer', ...mono }}>↻ REFRESH</button>
           </div>
         </div>
-
         {oandaError && (
           <div style={{ padding: '10px 16px', backgroundColor: '#FEF2F2', borderBottom: '1px solid #FCA5A5', fontSize: '9px', color: '#991B1B' }}>
             ⚠ {oandaError} — Showing any locally cached data.
           </div>
         )}
-
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', ...mono }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #E4E4DF', textAlign: 'left', color: '#6B7280', backgroundColor: '#FAFAFA' }}>
@@ -642,34 +796,33 @@ export default function TradePage() {
                 </td>
               </tr>
             ) : (
-              execLog.map(log => {
-                const isExpanded = expandedRow === log.id;
-                const rowBg = isExpanded ? '#F0F9FF' : '#FFFFFF';
+              execLog.map(entry => {
+                const isExpanded = expandedRow === entry.id;
                 return (
-                  <React.Fragment key={log.id}>
+                  <React.Fragment key={entry.id}>
                     <tr
-                      onClick={() => setExpandedRow(isExpanded ? null : log.id)}
-                      style={{ borderBottom: '1px solid #F0F0EC', backgroundColor: rowBg, cursor: 'pointer', transition: 'background-color 0.15s' }}
+                      onClick={() => setExpandedRow(isExpanded ? null : entry.id)}
+                      style={{ borderBottom: '1px solid #F0F0EC', backgroundColor: isExpanded ? '#F0F9FF' : '#FFFFFF', cursor: 'pointer', transition: 'background-color 0.15s' }}
                     >
-                      <td style={{ padding: '9px 12px', color: '#6B7280', whiteSpace: 'nowrap' }}>{log.timestamp}</td>
+                      <td style={{ padding: '9px 12px', color: '#6B7280', whiteSpace: 'nowrap' }}>{entry.timestamp}</td>
                       <td style={{ padding: '9px 12px' }}>
-                        <span style={{ padding: '2px 6px', backgroundColor: log.type === 'AUTO' ? '#1C3A5E' : '#F7F7F5', color: log.type === 'AUTO' ? '#C8F135' : '#14181B', fontSize: '8px', fontWeight: 700, letterSpacing: '0.5px' }}>
-                          {log.tier}
+                        <span style={{ padding: '2px 6px', backgroundColor: entry.type === 'AUTO' ? '#1C3A5E' : '#F7F7F5', color: entry.type === 'AUTO' ? '#C8F135' : '#14181B', fontSize: '8px', fontWeight: 700, letterSpacing: '0.5px' }}>
+                          {entry.tier}
                         </span>
                       </td>
-                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1C3A5E' }}>{log.instrument}</td>
-                      <td style={{ padding: '9px 12px', fontWeight: 800, color: log.direction === 'BUY' ? '#16A34A' : '#DC2626', fontSize: '11px' }}>
-                        {log.direction === 'BUY' ? '▲' : '▼'} {log.direction}
+                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1C3A5E' }}>{entry.instrument}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 800, color: entry.direction === 'BUY' ? '#16A34A' : '#DC2626', fontSize: '11px' }}>
+                        {entry.direction === 'BUY' ? '▲' : '▼'} {entry.direction}
                       </td>
-                      <td style={{ padding: '9px 12px' }}>{log.units}</td>
-                      <td style={{ padding: '9px 12px', fontWeight: 600 }}>{log.fillPrice}</td>
-                      <td style={{ padding: '9px 12px', color: '#6B7280' }}>{log.closePrice || '—'}</td>
-                      <td style={{ padding: '9px 12px', fontWeight: 700, color: log.pnlPositive ? '#16A34A' : '#DC2626' }}>
-                        {log.pnl ? `${log.pnlSign}$${log.pnl}` : '—'}
+                      <td style={{ padding: '9px 12px' }}>{entry.units}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 600 }}>{entry.fillPrice}</td>
+                      <td style={{ padding: '9px 12px', color: '#6B7280' }}>{entry.closePrice || '—'}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 700, color: entry.pnlPositive ? '#16A34A' : '#DC2626' }}>
+                        {entry.pnl ? `${entry.pnlSign}$${entry.pnl}` : '—'}
                       </td>
                       <td style={{ padding: '9px 12px' }}>
-                        <span style={{ padding: '2px 7px', backgroundColor: log.status === 'OPEN' ? '#EFF6FF' : log.status === 'CLOSED' ? '#F7F7F5' : '#DCFCE7', color: log.status === 'OPEN' ? '#1D4ED8' : log.status === 'CLOSED' ? '#374151' : '#166534', border: `1px solid ${log.status === 'OPEN' ? '#BFDBFE' : log.status === 'CLOSED' ? '#E4E4DF' : '#86EFAC'}`, fontSize: '8px', fontWeight: 700 }}>
-                          {log.status}
+                        <span style={{ padding: '2px 7px', backgroundColor: entry.status === 'OPEN' ? '#EFF6FF' : entry.status === 'CLOSED' ? '#F7F7F5' : '#DCFCE7', color: entry.status === 'OPEN' ? '#1D4ED8' : entry.status === 'CLOSED' ? '#374151' : '#166534', border: `1px solid ${entry.status === 'OPEN' ? '#BFDBFE' : entry.status === 'CLOSED' ? '#E4E4DF' : '#86EFAC'}`, fontSize: '8px', fontWeight: 700 }}>
+                          {entry.status}
                         </span>
                       </td>
                     </tr>
@@ -680,19 +833,19 @@ export default function TradePage() {
                             <div>
                               <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.5px' }}>TRADE DETAILS</div>
                               <div style={{ color: '#374151', lineHeight: 1.8 }}>
-                                <div><span style={{ color: '#6B7280' }}>Order ID: </span>{log.orderId}</div>
-                                <div><span style={{ color: '#6B7280' }}>Opened: </span>{log.timestamp}</div>
-                                {log.closedAt && <div><span style={{ color: '#6B7280' }}>Closed: </span>{log.closedAt}</div>}
-                                {log.closePrice && <div><span style={{ color: '#6B7280' }}>Close price: </span>{log.closePrice}</div>}
+                                <div><span style={{ color: '#6B7280' }}>Order ID: </span>{entry.orderId}</div>
+                                <div><span style={{ color: '#6B7280' }}>Opened: </span>{entry.timestamp}</div>
+                                {entry.closedAt && <div><span style={{ color: '#6B7280' }}>Closed: </span>{entry.closedAt}</div>}
+                                {entry.closePrice && <div><span style={{ color: '#6B7280' }}>Close price: </span>{entry.closePrice}</div>}
                               </div>
                             </div>
                             <div>
                               <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.5px' }}>SIGNAL / REASONING</div>
                               <div style={{ color: '#374151', lineHeight: 1.8 }}>
-                                {log.signal
-                                  ? <span style={{ color: '#1C3A5E' }}>{log.signal}</span>
+                                {entry.signal
+                                  ? <span style={{ color: '#1C3A5E' }}>{entry.signal}</span>
                                   : <span style={{ color: '#6B7280', fontStyle: 'italic' }}>
-                                      {log.type === 'AUTO'
+                                      {entry.type === 'AUTO'
                                         ? 'Automated signal — start scheduler to see detailed reasoning'
                                         : 'Placed via OANDA platform or MERIDIAN manual desk'}
                                     </span>
@@ -702,8 +855,8 @@ export default function TradePage() {
                             <div>
                               <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.5px' }}>P&L SUMMARY</div>
                               <div style={{ color: '#374151', lineHeight: 1.8 }}>
-                                <div><span style={{ color: '#6B7280' }}>Status: </span><span style={{ fontWeight: 700 }}>{log.status}</span></div>
-                                <div><span style={{ color: '#6B7280' }}>P&L: </span><span style={{ fontWeight: 700, color: log.pnlPositive ? '#16A34A' : '#DC2626' }}>{log.pnl ? `${log.pnlSign}$${log.pnl}` : 'Pending'}</span></div>
+                                <div><span style={{ color: '#6B7280' }}>Status: </span><span style={{ fontWeight: 700 }}>{entry.status}</span></div>
+                                <div><span style={{ color: '#6B7280' }}>P&L: </span><span style={{ fontWeight: 700, color: entry.pnlPositive ? '#16A34A' : '#DC2626' }}>{entry.pnl ? `${entry.pnlSign}$${entry.pnl}` : 'Pending'}</span></div>
                               </div>
                             </div>
                           </div>
@@ -717,7 +870,7 @@ export default function TradePage() {
           </tbody>
         </table>
         <div style={{ padding: '8px 16px', fontSize: '9px', color: '#94A3B8', borderTop: '1px solid #F0F0EC', display: 'flex', justifyContent: 'space-between' }}>
-          <span>Click any row to expand trade detail and reasoning.</span>
+          <span>Click any row to expand trade detail and signal reasoning.</span>
           <span>{execLog.length} trade{execLog.length !== 1 ? 's' : ''} · Last refreshed: {lastRefresh}</span>
         </div>
       </div>
@@ -725,7 +878,7 @@ export default function TradePage() {
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+          50%       { opacity: 0.5; }
         }
       `}</style>
     </div>
