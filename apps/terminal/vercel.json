@@ -2,5 +2,8 @@
   "framework": "nextjs",
   "buildCommand": "cd ../.. && npx turbo build --filter=@meridian/terminal...",
   "installCommand": "cd ../.. && npm install",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [
+    { "path": "/api/autotrader/cron", "schedule": "* * * * *" }
+  ]
 }

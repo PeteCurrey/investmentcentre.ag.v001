@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, AccountRiskState, requireHmacSecret } from './index';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, AccountRiskState, requireHmacSecret, checkNewsBlackoutActive, CalendarEvent } from './index';
 import { toScaledInteger, createPrice } from '@meridian/core';
 
 describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
@@ -183,4 +183,194 @@ describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
     expect(currencyDecision.approved).toBe(false);
     expect(currencyDecision.reasonCode).toBe('PRICE_CURRENCY_MISMATCH');
   });
+
+  it('rejects when openPositionCount reaches max concurrent positions cap (5)', () => {
+    const cappedState = { ...baseState, openPositionCount: 5 };
+    const decision = RiskGate.evaluate(baseIntent, FTMO_STANDARD_PROFILE, cappedState);
+    expect(decision.approved).toBe(false);
+    expect(decision.reasonCode).toBe('MAX_POSITIONS_EXCEEDED');
+  });
+
+  it('rejects when quote currency requires conversion and rate is unavailable', () => {
+    const jpyIntent: OrderIntent = {
+      ...baseIntent,
+      instrument: 'USD_JPY',
+      entryPrice: createPrice(toScaledInteger(15642n), 2, 'JPY'),
+      stopLossPrice: createPrice(toScaledInteger(15542n), 2, 'JPY')
+    };
+    // No quoteToAccountRates supplied
+    const decision = RiskGate.evaluate(jpyIntent, FTMO_STANDARD_PROFILE, baseState);
+    expect(decision.approved).toBe(false);
+    expect(decision.reasonCode).toBe('CONVERSION_RATE_UNAVAILABLE');
+  });
+
+  it('approves when quote currency conversion rate is provided and risk is compliant', () => {
+    const jpyIntent: OrderIntent = {
+      ...baseIntent,
+      instrument: 'USD_JPY',
+      units: toScaledInteger(1000n),
+      entryPrice: createPrice(toScaledInteger(15642n), 2, 'JPY'),
+      stopLossPrice: createPrice(toScaledInteger(15542n), 2, 'JPY')
+    };
+    const jpyState: AccountRiskState = {
+      ...baseState,
+      quoteToAccountRates: { 'JPY': 0.00639 } // 1 JPY = 0.00639 USD
+    };
+    const decision = RiskGate.evaluate(jpyIntent, FTMO_STANDARD_PROFILE, jpyState);
+    expect(decision.approved).toBe(true);
+  });
 });
+
+describe('checkNewsBlackoutActive', () => {
+  const origTeKey = process.env.TRADING_ECONOMICS_KEY;
+  const origCalendarUrl = process.env.ECONOMIC_CALENDAR_URL;
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    delete process.env.TRADING_ECONOMICS_KEY;
+    delete process.env.ECONOMIC_CALENDAR_URL;
+    global.fetch = mockFetch;
+  });
+
+  afterEach(() => {
+    process.env.TRADING_ECONOMICS_KEY = origTeKey;
+    process.env.ECONOMIC_CALENDAR_URL = origCalendarUrl;
+    vi.restoreAllMocks();
+  });
+
+  it('fails closed (returns true) if no calendar source is configured', async () => {
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(result).toBe(true);
+  });
+
+  it('fails closed (returns true) if fetch throws an error', async () => {
+    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
+    mockFetch.mockRejectedValue(new Error('Network failure'));
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(result).toBe(true);
+  });
+
+  it('fails closed (returns true) if fetch returns a non-ok response', async () => {
+    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(result).toBe(true);
+  });
+
+  it('returns false if there are no events in the calendar', async () => {
+    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => []
+    });
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(result).toBe(false);
+  });
+
+  it('returns true if a HIGH impact event for target currency is within window', async () => {
+    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
+    const now = new Date();
+    // Event scheduled 1 minute from now (window is 2 minutes)
+    const eventTime = new Date(now.getTime() + 60 * 1000).toISOString();
+
+    const mockEvents: CalendarEvent[] = [
+      {
+        id: 'evt_1',
+        title: 'Non-Farm Payrolls',
+        country: 'USD',
+        impact: 'HIGH',
+        scheduledAt: eventTime
+      }
+    ];
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => mockEvents
+    });
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(result).toBe(true);
+  });
+
+  it('returns false if event is within window but impact is not HIGH', async () => {
+    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
+    const now = new Date();
+    const eventTime = new Date(now.getTime() + 60 * 1000).toISOString();
+
+    const mockEvents: CalendarEvent[] = [
+      {
+        id: 'evt_1',
+        title: 'Minor Report',
+        country: 'USD',
+        impact: 'MEDIUM',
+        scheduledAt: eventTime
+      }
+    ];
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => mockEvents
+    });
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(result).toBe(false);
+  });
+
+  it('returns false if event is HIGH impact within window but for a non-traded currency', async () => {
+    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
+    const now = new Date();
+    const eventTime = new Date(now.getTime() + 60 * 1000).toISOString();
+
+    const mockEvents: CalendarEvent[] = [
+      {
+        id: 'evt_1',
+        title: 'ECB Rate Decision',
+        country: 'EUR',
+        impact: 'HIGH',
+        scheduledAt: eventTime
+      }
+    ];
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => mockEvents
+    });
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(result).toBe(false);
+  });
+
+  it('returns false if event is HIGH impact and for traded currency but outside window', async () => {
+    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
+    const now = new Date();
+    // Event scheduled 3 minutes from now (window is 2 minutes)
+    const eventTime = new Date(now.getTime() + 180 * 1000).toISOString();
+
+    const mockEvents: CalendarEvent[] = [
+      {
+        id: 'evt_1',
+        title: 'Non-Farm Payrolls',
+        country: 'USD',
+        impact: 'HIGH',
+        scheduledAt: eventTime
+      }
+    ];
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => mockEvents
+    });
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP'], 2);
+    expect(result).toBe(false);
+  });
+});
+
+

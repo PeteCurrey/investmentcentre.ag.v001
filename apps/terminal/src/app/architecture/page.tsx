@@ -76,10 +76,10 @@ export default function TechnicalArchitecturePage() {
             01 // CRYPTOGRAPHIC RISK GATE &amp; HMAC SIGNING
           </div>
           <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0F172A', marginBottom: '16px' }}>
-            ApprovalToken &amp; Nonce Anti-Replay Security
+            ApprovalToken &amp; Cryptographic Intent Security
           </h2>
           <p style={{ fontSize: '12px', color: '#475569', marginBottom: '20px', lineHeight: '1.7' }}>
-            Orders submitted by Meridian cannot be executed directly by the broker adapter without a cryptographically verified <code style={{ color: '#1E3A5F', fontFamily: '"DM Mono", monospace' }}>ApprovalToken</code>. The <code style={{ color: '#1E3A5F', fontFamily: '"DM Mono", monospace' }}>RiskGate</code> signs the OrderIntent using HMAC-SHA256 with a secret key (<code style={{ color: '#1E3A5F', fontFamily: '"DM Mono", monospace' }}>RISK_HMAC_SECRET</code>). The token embeds a unique timestamp and nonce to prevent replay attacks and unapproved order tampering.
+            Orders submitted by Meridian cannot be executed directly by the broker adapter without a cryptographically verified <code style={{ color: '#1E3A5F', fontFamily: '"DM Mono", monospace' }}>ApprovalToken</code>. The <code style={{ color: '#1E3A5F', fontFamily: '"DM Mono", monospace' }}>RiskGate</code> signs the OrderIntent using HMAC-SHA256 with a secret key (<code style={{ color: '#1E3A5F', fontFamily: '"DM Mono", monospace' }}>RISK_HMAC_SECRET</code>). The token binds the exact account, instrument, and 60-second expiration window to prevent unapproved order tampering.
           </p>
 
           <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', padding: '16px', fontSize: '11px', fontFamily: '"DM Mono", monospace', color: '#334155' }}>
@@ -98,14 +98,14 @@ export default function TechnicalArchitecturePage() {
             Tri-Model Consensus &amp; Probability Distributions
           </h2>
           <p style={{ fontSize: '12px', color: '#475569', marginBottom: '20px', lineHeight: '1.7' }}>
-            The AI Council runs parallel inference across Anthropic Claude 3.5 Sonnet, OpenAI GPT-4o, and xAI Grok-2. Each model independently evaluates incoming metric deltas against active macroeconomic theses. An observation only escalates to Tier 3 (Prepare) if consensus agreement exceeds 85%.
+            The AI Council runs parallel inference across claude-sonnet-4-6, OpenAI GPT-4o, and xAI grok-2-latest. Each model independently evaluates incoming metric deltas against active macroeconomic theses and contributes an agreeScore that is averaged into the council's overallAgreementScore.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
             {[
-              { model: 'CLAUDE 3.5 SONNET', role: 'Macro Analysis & Thesis Invalidation', status: 'ONLINE (140ms)' },
-              { model: 'GPT-4O', role: 'Cross-Source Entity Resolution & SEC Joins', status: 'ONLINE (180ms)' },
-              { model: 'GROK-2', role: 'Real-Time News & Sentiment Velocity', status: 'ONLINE (110ms)' }
+              { model: 'CLAUDE-SONNET-4-6', role: 'Macro Analysis & Thesis Invalidation', status: 'ACTIVE' },
+              { model: 'GPT-4O', role: 'Cross-Source Entity Resolution & SEC Joins', status: 'ACTIVE' },
+              { model: 'GROK-2-LATEST', role: 'Real-Time News & Sentiment Velocity', status: 'ACTIVE' }
             ].map((m, i) => (
               <div key={i} style={{ border: '1px solid #E2E8F0', backgroundColor: '#FFFFFF', padding: '16px' }}>
                 <div style={{ fontSize: '11px', color: '#0F172A', fontWeight: 700, marginBottom: '4px', fontFamily: '"DM Mono", monospace' }}>{m.model}</div>

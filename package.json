@@ -9,6 +9,9 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
+    "test:ci": "vitest run && npm run check:floats && npm run check:data-integrity",
+    "check:floats": "node scripts/ci-check-float-safety.mjs",
+    "check:data-integrity": "node scripts/ci-check-data-integrity.mjs",
     "test:core": "node --experimental-vm-modules node_modules/.bin/vitest run packages/core/src",
     "test:risk": "node --experimental-vm-modules node_modules/.bin/vitest run packages/risk/src",
     "tsc": "node_modules/.bin/tsc"

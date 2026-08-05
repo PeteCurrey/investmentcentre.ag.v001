@@ -56,7 +56,7 @@ export async function GET() {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  const token = process.env.OANDA_API_TOKEN;
+  const token = process.env.OANDA_API_KEY;
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = process.env.OANDA_ENVIRONMENT || 'practice';
   const baseUrl =
@@ -146,27 +146,33 @@ export async function GET() {
       );
       const symbolFormatted = formatSymbol(t.instrument);
 
-      // Match against Supabase cycle_log
-      const matchedLocal =
-        localMap[t.id] ??
-        localMap[`OANDA-${t.id}`] ??
-        localMap[`oanda_${t.id}`];
+      // Match against Supabase cycle_log by raw OANDA trade ID only.
+      // A trade is AUTO only when a cycle_log row proves it passed through this system.
+      // Absence is the correct output for unknown data — never a plausible substitute.
+      const matchedLocal = localMap[t.id] ?? null;
 
-      const isAuto = matchedLocal?.action !== 'CLOSED'; // CLOSED = manual desk close
-      const tierLabel = isAuto ? 'AUTO (TIER 4)' : 'MANUAL DESK';
+      const isAuto = matchedLocal !== null &&
+        (matchedLocal.action === 'EXECUTED' ||
+         matchedLocal.action === 'OBSERVE_EVAL' ||
+         matchedLocal.action === 'PAPER_FILL');
 
-      let signalReasoning = matchedLocal?.reason ?? null;
+      const isManualDesk = matchedLocal !== null &&
+        matchedLocal.action === 'EXECUTED' &&
+        typeof matchedLocal.reason === 'string' &&
+        matchedLocal.reason.startsWith('[MANUAL DESK]');
 
-      if (!signalReasoning && isAuto) {
-        signalReasoning = `[AUTOMATED TIER 4 EXECUTION] ${symbolFormatted} ${direction} Signal | Technical Indicators: 15m Momentum Trend (${direction === 'BUY' ? '+1.2 pips' : '-1.2 pips'}), RSI 14 neutral/aligned | News Sentiment: Market Session Bias | RiskGate: APPROVED (FTMO Standard Profile Checked) | Order Protection: SL 30 pips / TP 60 pips`;
-      }
+      const tierLabel = isManualDesk ? 'MANUAL DESK' : isAuto ? 'AUTO (TIER 4)' : 'EXTERNAL';
+
+      // signal is null when there is no matching cycle_log row.
+      // Do not construct plausible text for unmatched trades.
+      const signalReasoning: string | null = matchedLocal?.reason ?? null;
 
       return {
         id: `oanda_${t.id}`,
         timestamp: t.openTime
           ? new Date(t.openTime).toISOString().replace('T', ' ').substring(0, 19)
           : '—',
-        type: isAuto ? ('AUTO' as const) : ('MANUAL' as const),
+        type: isAuto ? ('AUTO' as const) : ('EXTERNAL' as const),
         instrument: symbolFormatted,
         direction: direction as 'BUY' | 'SELL',
         units: Math.abs(initialUnits).toLocaleString(),

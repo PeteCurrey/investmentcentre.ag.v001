@@ -1,82 +1,14 @@
-import { Result, ok, err, ScaledInteger, Price, normalizeScale, createLogger } from '@meridian/core';
+import { type ScaledInteger, type Price, normalizeScale, createLogger } from '@meridian/core';
 import crypto from 'crypto';
+import { CORRELATION_GROUPS } from './sizing';
+import type { OrderIntent, RiskProfile, AccountRiskState, RiskDecision, ApprovalToken, RiskRejectionReason, OpenPositionRisk } from './types';
+
+export * from './types';
+export * from './calendar';
+export * from './state';
+export * from './sizing';
 
 const log = createLogger('RiskGate');
-
-export interface RiskProfile {
-  id: string;
-  name: string;
-  maxDailyLossPct: number; // e.g. 5.0
-  maxTotalDrawdownPct: number; // e.g. 10.0
-  maxRiskPerTradePct: number; // e.g. 1.0
-  maxConcurrentPositions: number; // e.g. 5
-  newsBlackoutWindowMinutes: number; // default 2
-}
-
-export const FTMO_STANDARD_PROFILE: RiskProfile = {
-  id: 'FTMO_STANDARD',
-  name: 'FTMO Standard Funded Challenge',
-  maxDailyLossPct: 5.0,
-  maxTotalDrawdownPct: 10.0,
-  maxRiskPerTradePct: 1.0,
-  maxConcurrentPositions: 5,
-  newsBlackoutWindowMinutes: 2
-};
-
-export interface OrderIntent {
-  id: string;
-  accountId: string;
-  instrument: string;
-  direction: 'BUY' | 'SELL';
-  units: ScaledInteger;
-  entryPrice: Price;
-  stopLossPrice: Price;
-  takeProfitPrice?: Price;
-  /** When set, a trailing stop of this pip distance is submitted to the broker
-   *  instead of a fixed stopLossOnFill. Format: decimal string e.g. "0.0015" */
-  trailingStopDistance?: string;
-  requestedAt: string;
-}
-
-export interface AccountRiskState {
-  accountId: string;
-  startingDailyBalance: ScaledInteger;
-  currentEquity: ScaledInteger;
-  highWaterMark: ScaledInteger;
-  openPositionCount: number;
-  realizedPnlToday: ScaledInteger;
-  unrealizedPnl: ScaledInteger;
-  isNewsBlackoutActive: boolean;
-}
-
-export interface ApprovalToken {
-  tokenId: string;
-  orderIntentId: string;
-  accountId: string;
-  issuedAt: string;
-  expiresAt: string;
-  hmacSignature: string;
-}
-
-export type RiskRejectionReason = 
-  | 'DAILY_LOSS_LIMIT_EXCEEDED'
-  | 'TOTAL_DRAWDOWN_EXCEEDED'
-  | 'MAX_RISK_PER_TRADE_EXCEEDED'
-  | 'NEWS_BLACKOUT_ACTIVE'
-  | 'MAX_POSITIONS_EXCEEDED'
-  | 'MISSING_STOP_LOSS'
-  | 'INVALID_UNITS_MAGNITUDE'
-  | 'PRICE_SCALE_MISMATCH'
-  | 'PRICE_CURRENCY_MISMATCH'
-  | 'INVALID_TOKEN';
-
-export interface RiskDecision {
-  approved: boolean;
-  orderIntentId: string;
-  reasonCode?: RiskRejectionReason;
-  token?: ApprovalToken;
-  evaluatedAt: string;
-}
 
 export function requireHmacSecret(): string {
   const secret = process.env.RISK_HMAC_SECRET;
@@ -148,6 +80,39 @@ export class RiskGate {
       };
     }
 
+    // Rule 5b: Spread Check
+    if (state.currentSpreadPips !== undefined && profile.maxSpreadPips) {
+      const maxSpread = profile.maxSpreadPips[intent.instrument] ?? profile.maxSpreadPips['default'] ?? 10.0;
+      if (state.currentSpreadPips > maxSpread) {
+        return {
+          approved: false,
+          orderIntentId: intent.id,
+          reasonCode: 'SPREAD_EXCEEDS_MAXIMUM',
+          evaluatedAt: now
+        };
+      }
+    }
+
+    // Rule 5c: Correlated Exposure Check
+    if (profile.maxCorrelatedExposure && state.openPositions) {
+      const matchGroup = Object.values(CORRELATION_GROUPS).find(group =>
+        group.includes(intent.instrument)
+      );
+      if (matchGroup) {
+        const correlatedPositions = state.openPositions.filter(p =>
+          matchGroup.includes(p.instrument) && p.direction === intent.direction
+        );
+        if (correlatedPositions.length >= profile.maxCorrelatedExposure) {
+          return {
+            approved: false,
+            orderIntentId: intent.id,
+            reasonCode: 'MAX_CORRELATED_EXPOSURE_EXCEEDED',
+            evaluatedAt: now
+          };
+        }
+      }
+    }
+
     // Rule 6: Max Risk Per Trade Check
     if (intent.entryPrice.scale !== intent.stopLossPrice.scale) {
       return {
@@ -165,15 +130,35 @@ export class RiskGate {
         evaluatedAt: now
       };
     }
-    // ASSUMPTION: Instrument quote currency equals account currency (e.g. USD). Multi-currency conversion is not implemented.
 
     const priceDelta = intent.entryPrice.price > intent.stopLossPrice.price
       ? intent.entryPrice.price - intent.stopLossPrice.price
       : intent.stopLossPrice.price - intent.entryPrice.price;
 
     const rawRisk = (priceDelta * intent.units) as ScaledInteger;
-    // Normalize raw risk (at price.scale) to account equity scale (scale 2, cents) using ceiling rounding to never understate risk
-    const riskInEquityScale = normalizeScale(rawRisk, intent.entryPrice.scale, 2, 'ceil');
+    // Normalize raw risk (at price.scale) to quote currency scale (scale 2, cents) using ceiling rounding
+    const riskInQuoteCurrencyScale = normalizeScale(rawRisk, intent.entryPrice.scale, 2, 'ceil');
+
+    // Multi-currency conversion from Quote Currency -> Account Currency
+    const quoteCurrency = intent.entryPrice.currency;
+    const accountCurrency = state.accountCurrency || 'USD';
+
+    let riskInEquityScale: ScaledInteger = riskInQuoteCurrencyScale;
+
+    if (quoteCurrency !== accountCurrency) {
+      const rate = state.quoteToAccountRates?.[quoteCurrency];
+      if (rate === undefined || rate <= 0 || isNaN(rate)) {
+        return {
+          approved: false,
+          orderIntentId: intent.id,
+          reasonCode: 'CONVERSION_RATE_UNAVAILABLE',
+          evaluatedAt: now
+        };
+      }
+      const converted = Math.ceil(Number(riskInQuoteCurrencyScale) * rate);
+      riskInEquityScale = BigInt(converted) as ScaledInteger;
+    }
+
     const maxRiskAllowed = (state.currentEquity * BigInt(Math.round(profile.maxRiskPerTradePct * 100))) / 10000n;
 
     if (riskInEquityScale > maxRiskAllowed) {
@@ -181,6 +166,24 @@ export class RiskGate {
         approved: false,
         orderIntentId: intent.id,
         reasonCode: 'MAX_RISK_PER_TRADE_EXCEEDED',
+        evaluatedAt: now
+      };
+    }
+
+    // Rule 6b: Max Aggregate Risk Check
+    const maxAggregateRiskPct = profile.maxAggregateRiskPct ?? 5.0;
+    const maxAggregateRiskAllowed = (state.currentEquity * BigInt(Math.round(maxAggregateRiskPct * 100))) / 10000n;
+    const existingRiskSum = (state.openPositions || []).reduce<bigint>(
+      (acc: bigint, pos: OpenPositionRisk) => acc + BigInt(pos.riskAmountInAccountCurrency),
+      0n
+    );
+    const totalAggregateRisk = (existingRiskSum + BigInt(riskInEquityScale)) as ScaledInteger;
+
+    if (totalAggregateRisk > maxAggregateRiskAllowed) {
+      return {
+        approved: false,
+        orderIntentId: intent.id,
+        reasonCode: 'MAX_AGGREGATE_RISK_EXCEEDED',
         evaluatedAt: now
       };
     }

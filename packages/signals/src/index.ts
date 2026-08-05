@@ -1,2 +1,4 @@
-// Package @meridian/signals entry point
-export const PKG_NAME = "@meridian/signals";
+// @meridian/signals — Signal generation engine
+export * from './types';
+export * from './indicators';
+export * from './generator';

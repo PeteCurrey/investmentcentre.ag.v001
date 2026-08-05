@@ -1,7 +1,36 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createAdapter } from './index';
 
 describe('packages/adapters (Phase 1 Ingestion Adapters)', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    process.env.TWELVE_DATA_API_KEY = 'mock_twelve_data_key';
+    process.env.FINNHUB_API_KEY = 'mock_finnhub_key';
+
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('twelvedata.com')) {
+        return new Response(
+          JSON.stringify({ symbol: 'GBP/USD', name: 'British Pound', close: '1.3000', datetime: new Date().toISOString() }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('finnhub.io')) {
+        return new Response(
+          JSON.stringify({ c: 550.25, d: 1.5, dp: 0.27, h: 551.0, l: 549.0, o: 549.5, pc: 548.75, t: Math.floor(Date.now() / 1000) }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(JSON.stringify({ data: 'mock' }), { status: 200 });
+    }) as any;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.TWELVE_DATA_API_KEY;
+    delete process.env.FINNHUB_API_KEY;
+  });
+
   const adapters = [
     { id: 'fred', expectedPillar: 'WORLD' },
     { id: 'twelve_data', expectedPillar: 'MARKETS' },

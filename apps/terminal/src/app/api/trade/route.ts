@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../lib/auth';
 import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
-import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent } from '@meridian/risk';
-import { toScaledInteger, createPrice, moneyToString, insertCycleLog } from '@meridian/core';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState } from '@meridian/risk';
+import { toScaledInteger, createPrice, moneyToString, insertCycleLog, insertGateDecision } from '@meridian/core';
 import crypto from 'crypto';
 
 export async function GET() {
@@ -10,7 +10,7 @@ export async function GET() {
     await requireSession();
   } catch {
     return NextResponse.json(
-      { error: 'UNAUTHORIZED: Authentication required.' },
+      { error: 'UNAUTHORIZED' },
       { status: 401 }
     );
   }
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     await requireSession();
   } catch {
     return NextResponse.json(
-      { error: 'UNAUTHORIZED: Authentication required.' },
+      { error: 'UNAUTHORIZED' },
       { status: 401 }
     );
   }
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const token = process.env.OANDA_API_TOKEN;
+  const token = process.env.OANDA_API_KEY;
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
 
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          'OANDA_CONFIG_ERROR: OANDA credentials (OANDA_API_TOKEN/OANDA_ACCOUNT_ID) not configured.',
+          'OANDA_CONFIG_ERROR: OANDA credentials (OANDA_API_KEY/OANDA_ACCOUNT_ID) not configured.',
       },
       { status: 500 }
     );
@@ -150,15 +150,33 @@ export async function POST(request: Request) {
     requestedAt: new Date().toISOString(),
   };
 
-  const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, {
-    accountId,
-    startingDailyBalance: accountState.balance.price,
-    currentEquity: accountState.equity.price,
-    highWaterMark: accountState.balance.price,
-    openPositionCount: accountState.openPositionsCount,
-    realizedPnlToday: toScaledInteger(0n),
-    unrealizedPnl: accountState.unrealizedPnl.price,
-    isNewsBlackoutActive: false,
+  const accountRiskState = await buildAccountRiskState(adapter, accountId, { instrument });
+  const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, accountRiskState);
+
+  // Persist gate decision
+  await insertGateDecision({
+    orderIntentId: intent.id,
+    instrument,
+    direction,
+    units: BigInt(units),
+    entryPrice: entryStr,
+    stopLossPrice: stopLoss,
+    takeProfitPrice: takeProfit ?? null,
+    profileId: FTMO_STANDARD_PROFILE.id,
+    profileSnapshot: FTMO_STANDARD_PROFILE as unknown as Record<string, unknown>,
+    accountState: {
+      accountId,
+      startingDailyBalance: String(accountRiskState.startingDailyBalance),
+      currentEquity: String(accountRiskState.currentEquity),
+      highWaterMark: String(accountRiskState.highWaterMark),
+      openPositionCount: accountRiskState.openPositionCount,
+      realizedPnlToday: String(accountRiskState.realizedPnlToday),
+      unrealizedPnl: String(accountRiskState.unrealizedPnl),
+      isNewsBlackoutActive: accountRiskState.isNewsBlackoutActive,
+    },
+    approved: decision.approved,
+    reasonCode: decision.reasonCode ?? null,
+    tokenId: decision.token?.tokenId ?? null,
   });
 
   if (!decision.approved || !decision.token) {

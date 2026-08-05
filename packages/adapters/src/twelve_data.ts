@@ -24,43 +24,33 @@ export class TwelveDataAdapter extends BaseAdapter<TwelveDataQuote> {
     const now = new Date().toISOString();
     const apiKey = process.env.TWELVE_DATA_API_KEY;
 
-    if (apiKey) {
-      try {
-        const res = await fetch(`https://api.twelvedata.com/quote?symbol=GBP/USD&apikey=${apiKey}`);
-        if (res.ok) {
-          const data = (await res.json()) as Record<string, any>;
-          if (data && data.close) {
-            return ok({
-              source_id: this.sourceId,
-              ref: `r2://meridian-archive/twelve_data/GBP_USD/${now}.json`,
-              payload: {
-                symbol: data.symbol || 'GBP/USD',
-                name: data.name || 'British Pound / US Dollar',
-                close: String(data.close),
-                datetime: now
-              },
-              captured_at: now
-            });
-          }
-        }
-      } catch (err: any) {
-        // Fall back to unconfigured error or fallback structure on network failure
-      }
+    if (!apiKey) {
+      return err(new Error('TwelveData: TWELVE_DATA_API_KEY is not configured. No fallback constant allowed (DATA INTEGRITY RULE 2).'));
     }
 
-    const rawData = {
-      symbol: 'GBP/USD',
-      name: 'British Pound / US Dollar',
-      close: '1.3145',
-      datetime: now
-    };
-
-    return ok({
-      source_id: this.sourceId,
-      ref: `r2://meridian-archive/twelve_data/GBP_USD/${now}.json`,
-      payload: rawData,
-      captured_at: now
-    });
+    try {
+      const res = await fetch(`https://api.twelvedata.com/quote?symbol=GBP/USD&apikey=${apiKey}`);
+      if (!res.ok) {
+        return err(new Error(`TwelveData: HTTP ${res.status} ${res.statusText}`));
+      }
+      const data = (await res.json()) as Record<string, any>;
+      if (!data || !data.close) {
+        return err(new Error(`TwelveData: Response missing 'close' field. Raw: ${JSON.stringify(data).slice(0, 200)}`));
+      }
+      return ok({
+        source_id: this.sourceId,
+        ref: `r2://meridian-archive/twelve_data/GBP_USD/${now}.json`,
+        payload: {
+          symbol: data.symbol || 'GBP/USD',
+          name: data.name || 'British Pound / US Dollar',
+          close: String(data.close),
+          datetime: now
+        },
+        captured_at: now
+      });
+    } catch (fetchErr: any) {
+      return err(new Error(`TwelveData: Network exception — ${fetchErr.message}`));
+    }
   }
 
   public validate(raw: RawPayload): Result<ValidatedPayload<TwelveDataQuote>> {

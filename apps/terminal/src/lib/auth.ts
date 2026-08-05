@@ -8,8 +8,7 @@
  * SESSION_SECRET must be ≥ 32 chars. Validated at every call via requireSessionSecret().
  */
 import { cookies } from 'next/headers';
-import { SignJWT } from 'jose/jwt/sign';
-import { jwtVerify } from 'jose/jwt/verify';
+import { SignJWT, jwtVerify } from 'jose';
 import type { JWTPayload } from 'jose';
 
 export interface SessionPayload extends JWTPayload {

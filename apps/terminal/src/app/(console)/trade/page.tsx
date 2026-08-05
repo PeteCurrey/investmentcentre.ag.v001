@@ -46,7 +46,7 @@ interface AutotraderState {
   autoStopAt: string | null; autoStopLabel: string | null;
 }
 interface AiAnalysis {
-  rating: string; rrRatio: string; rsiContext: string;
+  rating: string; rrRatio: string; momentumContext: string;
   macdContext: string; bbContext: string; consensusScore: string;
   keyRisk: string; summary: string;
 }
@@ -180,8 +180,6 @@ function TradePageInner() {
   const [autotrader, setAutotrader]       = useState<AutotraderState | null>(null);
   const [autoToggling, setAutoToggling]   = useState(false);
   const [runningCycle, setRunningCycle]   = useState(false);
-  const [cycleCountdown, setCycleCountdown] = useState(60);
-  const cycleRef                          = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Auto-Trading Settings
   const [showConfig, setShowConfig]       = useState(false);
@@ -410,10 +408,13 @@ function TradePageInner() {
       if (!res.ok) return;
       const data = await res.json();
       if (data.success) {
-        // Merge stored auto list if available
-        const storedList = getStoredAutoList();
-        if (storedList && storedList.length > 0) {
-          data.selectedInstruments = Array.from(new Set([...data.selectedInstruments, ...storedList]));
+        // Merge stored auto list if available, BUT NEVER when server mode is OBSERVE
+        // Server is source of truth. Stale localStorage must not override OBSERVE state.
+        if (data.mode !== 'OBSERVE') {
+          const storedList = getStoredAutoList();
+          if (storedList && storedList.length > 0) {
+            data.selectedInstruments = Array.from(new Set([...data.selectedInstruments, ...storedList]));
+          }
         }
         setAutotrader(data);
         if (data.lotUnits) setCustomLotUnits(String(data.lotUnits));
@@ -435,14 +436,13 @@ function TradePageInner() {
     } catch {}
   }, []);
 
-  // Run autonomous cycle execution endpoint
+  // Manual cycle trigger for UI button (never called on a background timer)
   const runAutonomousCycle = useCallback(async () => {
     setRunningCycle(true);
     try {
       const res = await fetch('/api/autotrader/run-cycle', { method: 'POST' });
       const data = await res.json();
       if (data.mode) {
-        // Refresh full server state after each cycle so mode display stays accurate.
         fetchAutotraderState();
       }
       fetchOandaData();
@@ -450,6 +450,8 @@ function TradePageInner() {
     setRunningCycle(false);
   }, [fetchOandaData, fetchAutotraderState]);
 
+  // Display polling loop — UI ONLY displays state, it NEVER drives execution.
+  // Execution is driven server-side by Vercel cron hitting /api/autotrader/cron.
   useEffect(() => {
     fetchPrices();
     fetchOandaData();
@@ -461,24 +463,6 @@ function TradePageInner() {
     }, 30000);
     return () => clearInterval(poll);
   }, [fetchOandaData, fetchPrices, fetchAutotraderState]);
-
-  // Cycle Countdown & Execution Loop when Auto-Trading is ON
-  useEffect(() => {
-    if (cycleRef.current) clearInterval(cycleRef.current);
-    if (autotrader?.enabled) {
-      setCycleCountdown(60);
-      cycleRef.current = setInterval(() => {
-        setCycleCountdown(c => {
-          if (c <= 1) {
-            runAutonomousCycle();
-            return 60;
-          }
-          return c - 1;
-        });
-      }, 1000);
-    }
-    return () => { if (cycleRef.current) clearInterval(cycleRef.current); };
-  }, [autotrader?.enabled, runAutonomousCycle]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -503,13 +487,10 @@ function TradePageInner() {
       const data = await res.json();
       if (data.success) {
         setAutotrader(data);
-        if (toMode !== 'OBSERVE') {
-          runAutonomousCycle();
-        }
       }
     } catch {}
     setAutoToggling(false);
-  }, [autotrader, autoToggling, runAutonomousCycle]);
+  }, [autotrader, autoToggling]);
 
   const handleToggleInstrument = useCallback(async (symbolToToggle: string) => {
     if (!autotrader) return;
@@ -787,8 +768,8 @@ function TradePageInner() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, flexWrap: 'wrap' }}>
             {autotrader?.enabled && (
               <div style={{ textAlign: 'center', minWidth: '70px' }}>
-                <div style={{ fontSize: '20px', fontWeight: 800, color: '#4ADE80', lineHeight: 1 }}>{cycleCountdown}s</div>
-                <div style={{ fontSize: '8px', color: '#64748B', letterSpacing: '0.5px', marginTop: '2px' }}>NEXT CYCLE</div>
+                <div style={{ fontSize: '20px', fontWeight: 800, color: '#4ADE80', lineHeight: 1 }}>{refreshCountdown}s</div>
+                <div style={{ fontSize: '8px', color: '#64748B', letterSpacing: '0.5px', marginTop: '2px' }}>NEXT REFRESH</div>
               </div>
             )}
 
@@ -1340,7 +1321,7 @@ function TradePageInner() {
                   <span style={{ color: '#64748B', fontSize: '9px', fontWeight: 600 }}>R:R {aiAnalysis.rrRatio}</span>
                 </div>
                 <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', padding: '9px', display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '9px', color: '#475569' }}>
-                  <div>RSI: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.rsiContext}</span></div>
+                  <div>Momentum: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.momentumContext}</span></div>
                   <div>MACD: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.macdContext}</span></div>
                   <div>BB: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.bbContext}</span></div>
                   <div>RISK: <span style={{ color: '#DC2626', fontWeight: 700 }}>{aiAnalysis.keyRisk}</span></div>

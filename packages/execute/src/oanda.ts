@@ -37,6 +37,7 @@ export const OandaAccountSummarySchema = z.object({
     NAV: z.string(),
     unrealizedPL: z.string(),
     openPositionCount: z.number().optional(),
+    openTradeCount: z.number().optional(),
     currency: z.string()
   })
 });
@@ -103,9 +104,11 @@ export class OandaBrokerAdapter implements BrokerAdapter {
   private config: OandaConfig;
 
   constructor(config?: Partial<OandaConfig>) {
+    const envApiKey = process.env.OANDA_API_KEY || '';
+    const envAccountId = process.env.OANDA_ACCOUNT_ID || '';
     this.config = {
-      accountId: config?.accountId || process.env.OANDA_ACCOUNT_ID || '',
-      apiKey: config?.apiKey || process.env.OANDA_API_KEY || '',
+      accountId: config?.accountId !== undefined ? config.accountId : envAccountId,
+      apiKey: config?.apiKey !== undefined ? config.apiKey : envApiKey,
       environment: (config?.environment || process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live'
     };
     this.isPaper = this.config.environment === 'practice';
@@ -131,6 +134,42 @@ export class OandaBrokerAdapter implements BrokerAdapter {
     // SECURITY GUARD 3: Require explicit credentials (fail-closed, no mock fallbacks)
     if (!this.config.apiKey || !this.config.accountId) {
       return err(new Error('OANDA BrokerAdapter Exception: OANDA API key or account ID is unconfigured.'));
+    }
+
+    // SECURITY GUARD 4: Protection Contract Validation
+    // If the order carries a trailing stop distance, the approved intent's stopLossPrice must match
+    // the distance implied by trailingStopDistance (within 1-pip tolerance).
+    if (intent.trailingStopDistance && intent.stopLossPrice && intent.entryPrice) {
+      const entryNum = Number(intent.entryPrice.price) / Math.pow(10, intent.entryPrice.scale);
+      const slNum = Number(intent.stopLossPrice.price) / Math.pow(10, intent.stopLossPrice.scale);
+      const impliedDistance = Math.abs(entryNum - slNum);
+      const trailingDistanceNum = parseFloat(intent.trailingStopDistance);
+      const pipVal = intent.instrument.includes('JPY') ? 0.01 : (intent.instrument.startsWith('XAU') || intent.instrument.startsWith('SPX') ? 1.0 : 0.0001);
+      const diffPips = Math.abs(impliedDistance - trailingDistanceNum) / pipVal;
+
+      if (diffPips > 1.0) {
+        return err(new Error(`BrokerAdapter Contract Mismatch: Transmitted trailing stop distance (${intent.trailingStopDistance}) does not match approved stop loss price in intent (implied diff ${diffPips.toFixed(1)} pips).`));
+      }
+    }
+
+    // SECURITY GUARD 5: OANDA Minimum Distance Validation
+    // Prevent OANDA broker rejection by validating protection distances against instrument minimums before submission.
+    const pipVal = intent.instrument.includes('JPY') ? 0.01 : (intent.instrument.startsWith('XAU') || intent.instrument.startsWith('SPX') ? 1.0 : 0.0001);
+    const minDistancePips = intent.instrument.startsWith('XAU') ? 5.0 : (intent.instrument.startsWith('SPX') ? 2.0 : 3.0);
+    const minDistanceVal = minDistancePips * pipVal;
+
+    if (intent.trailingStopDistance) {
+      const dist = parseFloat(intent.trailingStopDistance);
+      if (dist < minDistanceVal) {
+        return err(new Error(`OANDA Minimum Distance Violated: Requested trailing stop distance (${dist}) is less than minimum required (${minDistanceVal}) for ${intent.instrument}.`));
+      }
+    } else if (intent.stopLossPrice && intent.entryPrice) {
+      const entryNum = Number(intent.entryPrice.price) / Math.pow(10, intent.entryPrice.scale);
+      const slNum = Number(intent.stopLossPrice.price) / Math.pow(10, intent.stopLossPrice.scale);
+      const dist = Math.abs(entryNum - slNum);
+      if (dist < minDistanceVal) {
+        return err(new Error(`OANDA Minimum Distance Violated: Requested stop loss distance (${dist.toFixed(5)}) is less than minimum required (${minDistanceVal}) for ${intent.instrument}.`));
+      }
     }
 
     try {
@@ -350,13 +389,186 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         balance: { price: parsedBalance.amount, scale: parsedBalance.scale, currency: accountCurrency },
         equity: { price: parsedNav.amount, scale: parsedNav.scale, currency: accountCurrency },
         unrealizedPnl: { price: parsedPnl.amount, scale: parsedPnl.scale, currency: accountCurrency },
-        openPositionsCount: summary.openPositionCount || 0,
+        openPositionsCount: (summary.openPositionCount ?? summary.openTradeCount) || 0,
         currency: accountCurrency,
         source: 'oanda.rest.v3',
         fetchedAt: new Date().toISOString()
       });
     } catch (e: any) {
       return err(new Error(`OANDA GetAccountState Exception: ${e.message}`));
+    }
+  }
+
+  /**
+   * Fetches live mid prices for the given instruments from the OANDA pricing API.
+   * Returns a map of instrument (e.g. "GBP_USD") -> mid price string (e.g. "1.3142").
+   * Returns err() if the API key is missing, the request fails, or any instrument is absent.
+   */
+  public async getLivePrices(instruments: string[]): Promise<Result<Record<string, string>>> {
+    if (!this.config.apiKey || !this.config.accountId) {
+      return err(new Error('OANDA getLivePrices: API key or account ID is unconfigured.'));
+    }
+    if (instruments.length === 0) {
+      return ok({});
+    }
+    try {
+      // OANDA pricing API: GET /v3/accounts/{id}/pricing?instruments=GBP_USD,EUR_USD,...
+      const instrumentList = instruments.map((i) => i.replace('/', '_')).join(',');
+      const response = await fetch(
+        `${this.baseUrl}/accounts/${this.config.accountId}/pricing?instruments=${encodeURIComponent(instrumentList)}`,
+        {
+          headers: { Authorization: `Bearer ${this.config.apiKey}` }
+        }
+      );
+      if (!response.ok) {
+        return err(new Error(`OANDA getLivePrices: HTTP ${response.status} ${response.statusText}`));
+      }
+      const rawData = (await response.json()) as any;
+      if (!rawData || !Array.isArray(rawData.prices)) {
+        return err(new Error(`OANDA getLivePrices: Response missing 'prices' array`));
+      }
+      const result: Record<string, string> = {};
+      for (const p of rawData.prices) {
+        if (!p.instrument) continue;
+        // Use mid between best bid and ask, or 'closeoutBid' / 'closeoutAsk' if available
+        const bid = parseFloat(p.bids?.[0]?.price || p.closeoutBid || '0');
+        const ask = parseFloat(p.asks?.[0]?.price || p.closeoutAsk || '0');
+        if (bid > 0 && ask > 0) {
+          const mid = (bid + ask) / 2;
+          // Determine appropriate decimal places from the price itself
+          const midStr = mid.toPrecision(7).replace(/\.?0+$/, '');
+          result[p.instrument] = mid.toFixed(Math.max(2, (midStr.split('.')[1] || '').length));
+        }
+      }
+      // Verify all requested instruments were returned
+      const missing = instruments
+        .map((i) => i.replace('/', '_'))
+        .filter((i) => !(i in result));
+      if (missing.length > 0) {
+        return err(new Error(`OANDA getLivePrices: Missing prices for: ${missing.join(', ')}`));
+      }
+      return ok(result);
+    } catch (e: any) {
+      return err(new Error(`OANDA getLivePrices Exception: ${e.message}`));
+    }
+  }
+
+  /**
+   * Fetches OANDA closed transactions since specified `sinceIso` timestamp
+   * and sums realised P&L directly into a scale 2 ScaledInteger.
+   */
+  public async getRealizedPnlToday(accountId: string, sinceIso: string): Promise<Result<ScaledInteger>> {
+    if (!this.config.apiKey || !this.config.accountId) {
+      return err(new Error('OANDA BrokerAdapter Exception: OANDA API key or account ID is unconfigured.'));
+    }
+    try {
+      const response = await fetch(`${this.baseUrl}/accounts/${this.config.accountId}/transactions?from=${encodeURIComponent(sinceIso)}`, {
+        headers: {
+          'Authorization': `Bearer ${this.config.apiKey}`
+        }
+      });
+      if (!response.ok) {
+        return err(new Error(`OANDA GetRealizedPnlToday Error (${response.status}): ${response.statusText}`));
+      }
+      const data = (await response.json()) as any;
+      let totalPnlScaled = 0n as ScaledInteger;
+
+      // Inline transactions array
+      if (data && Array.isArray(data.transactions)) {
+        for (const tx of data.transactions) {
+          if (tx && typeof tx.pl === 'string' && tx.pl !== '0' && tx.pl !== '0.0000') {
+            const parsed = parsePriceStringToBigInt(tx.pl, 2);
+            totalPnlScaled = (totalPnlScaled + parsed.amount) as ScaledInteger;
+          }
+        }
+      }
+
+      // If response lists page URLs, fetch each page
+      if (data && Array.isArray(data.pages)) {
+        for (const pageUrl of data.pages) {
+          try {
+            const pageRes = await fetch(pageUrl, {
+              headers: { 'Authorization': `Bearer ${this.config.apiKey}` }
+            });
+            if (pageRes.ok) {
+              const pageData = (await pageRes.json()) as any;
+              if (pageData && Array.isArray(pageData.transactions)) {
+                for (const tx of pageData.transactions) {
+                  if (tx && typeof tx.pl === 'string' && tx.pl !== '0' && tx.pl !== '0.0000') {
+                    const parsed = parsePriceStringToBigInt(tx.pl, 2);
+                    totalPnlScaled = (totalPnlScaled + parsed.amount) as ScaledInteger;
+                  }
+                }
+              }
+            }
+          } catch {
+            // Log or ignore individual page failure
+          }
+        }
+      }
+
+      return ok(totalPnlScaled);
+    } catch (e: any) {
+      return err(new Error(`OANDA GetRealizedPnlToday Exception: ${e.message}`));
+    }
+  }
+
+  /**
+   * Fetch OHLC candle bars from OANDA v3 instruments/candles endpoint.
+   * @param instrument  e.g. 'GBP_USD' or 'GBP/USD' (slash converted to underscore automatically)
+   * @param granularity OANDA granularity: 'M1', 'M5', 'M15', 'H1', 'H4', 'D'
+   * @param count       Number of bars to fetch (max 5000 per OANDA API limit)
+   */
+  public async getCandles(
+    instrument: string,
+    granularity: 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D' = 'H1',
+    count: number = 50
+  ): Promise<Result<Array<{ time: string; open: number; high: number; low: number; close: number; volume: number }>>> {
+    if (!this.config.apiKey || !this.config.accountId) {
+      return err(new Error('OANDA BrokerAdapter: API key or account ID unconfigured.'));
+    }
+
+    try {
+      const oandaSymbol = instrument.replace('/', '_');
+      const url = `${this.baseUrl}/instruments/${oandaSymbol}/candles?granularity=${granularity}&count=${count}&price=M`;
+
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return err(new Error(`OANDA getCandles HTTP ${res.status}: ${body.slice(0, 200)}`));
+      }
+
+      const data = (await res.json()) as any;
+
+      if (!Array.isArray(data?.candles)) {
+        return err(new Error('OANDA getCandles: Missing candles array in response.'));
+      }
+
+      const bars = (data.candles as any[])
+        .filter(c => c?.complete === true && c?.mid)
+        .map(c => ({
+          time: c.time as string,
+          open: parseFloat(c.mid.o),
+          high: parseFloat(c.mid.h),
+          low: parseFloat(c.mid.l),
+          close: parseFloat(c.mid.c),
+          volume: c.volume ?? 0,
+        }))
+        .filter(b => !isNaN(b.open) && !isNaN(b.high) && !isNaN(b.low) && !isNaN(b.close));
+
+      if (bars.length === 0) {
+        return err(new Error(`OANDA getCandles: No complete bars returned for ${instrument} ${granularity}.`));
+      }
+
+      return ok(bars);
+    } catch (e: any) {
+      return err(new Error(`OANDA getCandles Exception: ${e.message}`));
     }
   }
 }

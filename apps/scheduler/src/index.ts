@@ -1,6 +1,6 @@
-import { createLogger, createPrice, toScaledInteger, ScaledInteger } from '@meridian/core';
+import { createLogger, createPrice, toScaledInteger, ScaledInteger, insertGateDecision } from '@meridian/core';
 import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
-import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent } from '@meridian/risk';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState } from '@meridian/risk';
 import { AutomationEngine, AutomationRule } from '@meridian/automation';
 import { TwelveDataAdapter } from '@meridian/adapters';
 import fs from 'fs';
@@ -85,13 +85,13 @@ async function runAutonomousCycle() {
 
   log.info('Running autonomous evaluation cycle...', { cycle: atState.cycleCount + 1 });
 
-  const token     = process.env.OANDA_API_TOKEN;
+  const token     = process.env.OANDA_API_KEY;
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env       = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
   const hmacSecret = process.env.RISK_HMAC_SECRET;
 
   if (!token || !accountId || !hmacSecret) {
-    log.warn('Autonomous Execution Suspended: Missing OANDA_API_TOKEN, OANDA_ACCOUNT_ID, or RISK_HMAC_SECRET');
+    log.warn('Autonomous Execution Suspended: Missing OANDA_API_KEY, OANDA_ACCOUNT_ID, or RISK_HMAC_SECRET');
     return;
   }
 
@@ -188,15 +188,32 @@ async function runAutonomousCycle() {
   // 7. Evaluate through RiskGate
   log.info('Routing through RiskGate', { units: '1000', direction, instrument: 'GBP/USD' });
 
-  const decision = RiskGate.evaluate(orderIntent, FTMO_STANDARD_PROFILE, {
-    accountId,
-    startingDailyBalance: accountState.balance.price,
-    currentEquity:        accountState.equity.price,
-    highWaterMark:        accountState.balance.price,
-    openPositionCount:    accountState.openPositionsCount,
-    realizedPnlToday:     toScaledInteger(0n),
-    unrealizedPnl:        accountState.unrealizedPnl.price,
-    isNewsBlackoutActive: false
+  const accountRiskState = await buildAccountRiskState(adapter, accountId, { instrument: 'GBP/USD' });
+  const decision = RiskGate.evaluate(orderIntent, FTMO_STANDARD_PROFILE, accountRiskState);
+
+  await insertGateDecision({
+    orderIntentId: orderIntent.id,
+    instrument: 'GBP/USD',
+    direction,
+    units: 1000n,
+    entryPrice: spotPrice.toFixed(5),
+    stopLossPrice: (spotPrice + slOffset).toFixed(5),
+    takeProfitPrice: (spotPrice + tpOffset).toFixed(5),
+    profileId: FTMO_STANDARD_PROFILE.id,
+    profileSnapshot: FTMO_STANDARD_PROFILE as unknown as Record<string, unknown>,
+    accountState: {
+      accountId,
+      startingDailyBalance: String(accountRiskState.startingDailyBalance),
+      currentEquity: String(accountRiskState.currentEquity),
+      highWaterMark: String(accountRiskState.highWaterMark),
+      openPositionCount: accountRiskState.openPositionCount,
+      realizedPnlToday: String(accountRiskState.realizedPnlToday),
+      unrealizedPnl: String(accountRiskState.unrealizedPnl),
+      isNewsBlackoutActive: accountRiskState.isNewsBlackoutActive,
+    },
+    approved: decision.approved,
+    reasonCode: decision.reasonCode ?? null,
+    tokenId: decision.token?.tokenId ?? null,
   });
 
   if (!decision.approved || !decision.token) {

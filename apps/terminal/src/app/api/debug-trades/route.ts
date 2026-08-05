@@ -8,7 +8,7 @@ export async function GET() {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  const token = process.env.OANDA_API_TOKEN;
+  const token = process.env.OANDA_API_KEY;
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = process.env.OANDA_ENVIRONMENT || 'practice';
   const baseUrl = env === 'live'

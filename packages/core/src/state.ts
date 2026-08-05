@@ -360,7 +360,7 @@ interface CycleLogTradeRow {
 
 /**
  * Reads cycle_log rows that have an order_id (executed trades), building a
- * lookup map keyed by order_id in all three formats used by oanda-positions.
+ * lookup map keyed by the raw OANDA order ID as stored in cycle_log.
  * Returns an empty map on any failure — callers degrade gracefully.
  */
 export async function readCycleLogTradeMap(): Promise<
@@ -390,8 +390,6 @@ export async function readCycleLogTradeMap(): Promise<
       if (!row.order_id) continue;
       const entry = { action: row.action, reason: row.reason, instrument: row.instrument };
       map[row.order_id] = entry;
-      map[`OANDA-${row.order_id}`] = entry;
-      map[`oanda_${row.order_id}`] = entry;
     }
   } catch (err: unknown) {
     log.error('readCycleLogTradeMap: unexpected error', { err });

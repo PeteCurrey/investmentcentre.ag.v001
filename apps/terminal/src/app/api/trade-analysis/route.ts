@@ -29,7 +29,7 @@ Chart Timeframe: ${timeframe}
 Based on this setup, provide a concise but high-quality trading analysis covering:
 1. Trade Quality Rating
 2. Risk:Reward Assessment: Calculate the R:R ratio from the price levels provided
-3. Technical Context: Comment on what RSI, MACD, Bollinger Bands, and EMA signals you'd expect for ${instrument} given the proposed direction
+3. Technical Context: Comment on what momentum, MACD, Bollinger Bands, and trend signals you'd expect for ${instrument} given the proposed direction
 4. Key risks specific to this setup
 5. A single clear recommendation sentence
 
@@ -37,7 +37,7 @@ Format your response as JSON with this exact structure (no markdown, raw JSON on
 {
   "rating": "HIGH CONVICTION BUY",
   "rrRatio": "1 : 2.10",
-  "rsiContext": "one line RSI comment",
+  "momentumContext": "one line momentum comment",
   "macdContext": "one line MACD comment",
   "bbContext": "one line Bollinger Bands comment",
   "consensusScore": "88% Conviction",

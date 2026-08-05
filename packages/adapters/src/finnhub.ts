@@ -28,51 +28,37 @@ export class FinnhubAdapter extends BaseAdapter<FinnhubQuote> {
     const now = new Date().toISOString();
     const apiKey = process.env.FINNHUB_API_KEY;
 
-    if (apiKey) {
-      try {
-        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${apiKey}`);
-        if (res.ok) {
-          const data = (await res.json()) as Record<string, any>;
-          if (data && typeof data.c === 'number' && data.c > 0) {
-            return ok({
-              source_id: this.sourceId,
-              ref: `r2://meridian-archive/finnhub/SPX/${now}.json`,
-              payload: {
-                c: data.c,
-                d: data.d ?? 0,
-                dp: data.dp ?? 0,
-                h: data.h ?? data.c,
-                l: data.l ?? data.c,
-                o: data.o ?? data.c,
-                pc: data.pc ?? data.c,
-                t: data.t ?? Math.floor(Date.now() / 1000)
-              },
-              captured_at: now
-            });
-          }
-        }
-      } catch (err: any) {
-        // Fall back on failure
-      }
+    if (!apiKey) {
+      return err(new Error('Finnhub: FINNHUB_API_KEY is not configured. No fallback constant allowed (DATA INTEGRITY RULE 2).'));
     }
 
-    const rawData = {
-      c: 5520.40,
-      d: 15.20,
-      dp: 0.28,
-      h: 5535.10,
-      l: 5510.00,
-      o: 5512.00,
-      pc: 5505.20,
-      t: Math.floor(Date.now() / 1000)
-    };
-
-    return ok({
-      source_id: this.sourceId,
-      ref: `r2://meridian-archive/finnhub/SPX/${now}.json`,
-      payload: rawData,
-      captured_at: now
-    });
+    try {
+      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${apiKey}`);
+      if (!res.ok) {
+        return err(new Error(`Finnhub: HTTP ${res.status} ${res.statusText}`));
+      }
+      const data = (await res.json()) as Record<string, any>;
+      if (!data || typeof data.c !== 'number' || data.c <= 0) {
+        return err(new Error(`Finnhub: Response missing valid current price 'c'. Raw: ${JSON.stringify(data).slice(0, 200)}`));
+      }
+      return ok({
+        source_id: this.sourceId,
+        ref: `r2://meridian-archive/finnhub/SPX/${now}.json`,
+        payload: {
+          c: data.c,
+          d: data.d ?? 0,
+          dp: data.dp ?? 0,
+          h: data.h ?? data.c,
+          l: data.l ?? data.c,
+          o: data.o ?? data.c,
+          pc: data.pc ?? data.c,
+          t: data.t ?? Math.floor(Date.now() / 1000)
+        },
+        captured_at: now
+      });
+    } catch (fetchErr: any) {
+      return err(new Error(`Finnhub: Network exception — ${fetchErr.message}`));
+    }
   }
 
   public validate(raw: RawPayload): Result<ValidatedPayload<FinnhubQuote>> {
