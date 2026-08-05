@@ -69,17 +69,25 @@ export async function GET() {
   try {
     const [openRes, tradesRes, accountRes, localMap] = await Promise.all([
       fetch(`${baseUrl}/accounts/${accountId}/openTrades`, { headers }),
-      fetch(`${baseUrl}/accounts/${accountId}/trades?state=ALL&count=1000`, { headers }),
+      fetch(`${baseUrl}/accounts/${accountId}/trades?state=ALL&count=500`, { headers }),
       fetch(`${baseUrl}/accounts/${accountId}/summary`, { headers }),
       getLocalTradesMap()
     ]);
 
     const openData = openRes.ok ? await openRes.json() : { trades: [] };
-    const tradesData = tradesRes.ok ? await tradesRes.json() : { trades: [] };
+    let tradesData: any = { trades: [] };
+    let tradesFetchError: string | null = null;
+    if (tradesRes.ok) {
+      tradesData = await tradesRes.json();
+    } else {
+      tradesFetchError = `OANDA trades fetch failed: HTTP ${tradesRes.status}`;
+      try { const errBody = await tradesRes.text(); tradesFetchError += ` — ${errBody.substring(0, 200)}`; } catch {}
+    }
     const accountData = accountRes.ok ? await accountRes.json() : null;
 
     const openTrades: any[] = openData.trades || [];
     const allTrades: any[] = tradesData.trades || [];
+
 
     // ── Live open positions (with P&L)
     const positions = openTrades.map((t: any) => {
@@ -172,7 +180,7 @@ export async function GET() {
         }
       : null;
 
-    return NextResponse.json({ success: true, positions, execLog, account });
+    return NextResponse.json({ success: true, positions, execLog, account, tradesFetchError });
   } catch (e: any) {
     return NextResponse.json({
       success: false,

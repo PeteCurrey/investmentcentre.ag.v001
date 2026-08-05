@@ -392,7 +392,11 @@ function TradePageInner() {
         setPositions(data.positions || []);
         setExecLog(data.execLog || []);
         if (data.account) setAccount(data.account);
-        setOandaError(null);
+        if (data.tradesFetchError) {
+          setOandaError(`TRADES API ERROR: ${data.tradesFetchError}`);
+        } else {
+          setOandaError(null);
+        }
       } else {
         setOandaError(data.error || 'OANDA data unavailable');
       }

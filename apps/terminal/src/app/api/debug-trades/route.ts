@@ -21,8 +21,9 @@ export async function GET() {
   const headers = { 'Authorization': `Bearer ${token}`, 'Accept-Datetime-Format': 'RFC3339' };
 
   try {
-    const tradesRes = await fetch(`${baseUrl}/accounts/${accountId}/trades?state=CLOSED&count=50`, { headers });
-    const tradesData = tradesRes.ok ? await tradesRes.json() : { error: 'fetch failed', status: tradesRes.status };
+    const tradesRes = await fetch(`${baseUrl}/accounts/${accountId}/trades?state=ALL&count=500`, { headers });
+    const tradesRaw = tradesRes.ok ? await tradesRes.text() : null;
+    const tradesData = tradesRaw ? JSON.parse(tradesRaw) : { error: `HTTP ${tradesRes.status}` };
 
     // Also get account summary for comparison
     const accountRes = await fetch(`${baseUrl}/accounts/${accountId}/summary`, { headers });
