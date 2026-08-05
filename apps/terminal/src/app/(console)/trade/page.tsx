@@ -21,6 +21,7 @@ interface Position {
   id: string; instrument: string; direction: string; units: string;
   entryPrice: string; unrealizedPL: string; pnlSign: string;
   pnlPositive: boolean; openedAt: string; tradeId: string; financing: string;
+  stopLossOrderID?: string; takeProfitOrderID?: string;
 }
 interface AccountSummary {
   balance: string; nav: string; unrealizedPL: string;
@@ -148,8 +149,15 @@ export default function TradePage() {
   const [customLotUnits, setCustomLotUnits] = useState('100');
 
   // UI state
-  const [expandedRow, setExpandedRow]     = useState<string | null>(null);
+  const [expandedRow, setExpandedRow]       = useState<string | null>(null);
+  const [expandedPos, setExpandedPos]       = useState<string | null>(null);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [posCollapsed, setPosCollapsed]     = useState(false);
+  const [logCollapsed, setLogCollapsed]     = useState(false);
+
+  // Close trade
+  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
+  const [closeMsg, setCloseMsg]             = useState<{ id: string; ok: boolean; text: string } | null>(null);
 
   const inst = instruments.find(i => i.symbol === selectedSymbol) || instruments[0];
   const tier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
@@ -336,6 +344,28 @@ export default function TradePage() {
     } catch {}
     setSavingSchedule(false);
   }, []);
+
+  const handleCloseTrade = useCallback(async (tradeId: string, instrument: string) => {
+    setClosingTradeId(tradeId);
+    setCloseMsg(null);
+    try {
+      const res = await fetch('/api/close-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tradeId, instrument }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setCloseMsg({ id: tradeId, ok: false, text: data.error || 'Close failed' });
+      } else {
+        setCloseMsg({ id: tradeId, ok: true, text: `CLOSED @ ${data.closePrice} · P&L: ${parseFloat(data.realizedPL || '0') >= 0 ? '+' : ''}${data.realizedPL}` });
+        setTimeout(() => fetchOandaData(), 1500);
+      }
+    } catch (e: any) {
+      setCloseMsg({ id: tradeId, ok: false, text: `Network error: ${e.message}` });
+    }
+    setClosingTradeId(null);
+  }, [fetchOandaData]);
 
   const handleClearSchedule = useCallback(async () => {
     setSavingSchedule(true);
@@ -948,62 +978,154 @@ export default function TradePage() {
       </div>
 
       {/* ── Live Open Positions ── */}
-      <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#FFFFFF' }}>
-        <div style={{ backgroundColor: '#0F172A', padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: '#C8F135', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '1px' }}>
-          <span>● LIVE OPEN POSITIONS — OANDA {process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT?.toUpperCase() || 'PRACTICE'}</span>
-          <span style={{ fontSize: '9px', color: '#475569', fontWeight: 400 }}>Refreshed {lastRefresh}</span>
-        </div>
-        {positions.length === 0 ? (
-          <div style={{ padding: '16px 18px', fontSize: '10px', color: '#94A3B8', fontStyle: 'italic' }}>
-            {oandaError ? `⚠ OANDA connection error: ${oandaError}` : 'No open positions on OANDA account.'}
+      <div style={{ border: '1px solid #1C3A5E', backgroundColor: '#FFFFFF' }}>
+        {/* Header — always visible, click to collapse */}
+        <div
+          onClick={() => setPosCollapsed(v => !v)}
+          style={{ backgroundColor: '#0F172A', padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: '#C8F135', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '1px', cursor: 'pointer', userSelect: 'none' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '12px', color: '#4ADE80' }}>{posCollapsed ? '▶' : '▼'}</span>
+            <span>● LIVE OPEN POSITIONS — OANDA {process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT?.toUpperCase() || 'PRACTICE'}</span>
+            <span style={{ padding: '1px 7px', backgroundColor: positions.length > 0 ? '#22C55E' : '#475569', color: '#FFFFFF', fontSize: '9px', fontWeight: 800 }}>{positions.length}</span>
           </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', ...mono }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #E4E4DF', color: '#6B7280', textAlign: 'left', backgroundColor: '#F7F7F5' }}>
-                {['INSTRUMENT', 'DIRECTION', 'UNITS', 'ENTRY PRICE', 'UNREALIZED P&L', 'FINANCING', 'OPENED AT', 'TRADE ID'].map(h => (
-                  <th key={h} style={{ padding: '8px 14px', fontWeight: 500 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {positions.map(p => (
-                <tr key={p.id} style={{ borderBottom: '1px solid #F0F0EC', backgroundColor: p.pnlPositive ? '#F0FDF4' : '#FFF5F5' }}>
-                  <td style={{ padding: '10px 14px', fontWeight: 800, color: '#1C3A5E', fontSize: '11px' }}>{p.instrument}</td>
-                  <td style={{ padding: '10px 14px' }}>
-                    <span style={{ padding: '2px 8px', backgroundColor: p.direction === 'BUY' ? '#DCFCE7' : '#FEE2E2', color: p.direction === 'BUY' ? '#166534' : '#991B1B', fontWeight: 800, border: `1px solid ${p.direction === 'BUY' ? '#86EFAC' : '#FCA5A5'}`, fontSize: '9px' }}>
-                      {p.direction === 'BUY' ? '▲ LONG' : '▼ SHORT'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '10px 14px', fontWeight: 600 }}>{p.units}</td>
-                  <td style={{ padding: '10px 14px' }}>{p.entryPrice}</td>
-                  <td style={{ padding: '10px 14px', fontWeight: 800, fontSize: '11px', color: p.pnlPositive ? '#16A34A' : '#DC2626' }}>{p.pnlSign}${p.unrealizedPL}</td>
-                  <td style={{ padding: '10px 14px', color: '#6B7280' }}>{p.financing}</td>
-                  <td style={{ padding: '10px 14px', color: '#6B7280' }}>{p.openedAt}</td>
-                  <td style={{ padding: '10px 14px', color: '#6B7280', fontSize: '9px' }}>{p.tradeId}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <span style={{ fontSize: '9px', color: '#475569', fontWeight: 400 }}>Refreshed {lastRefresh} · {posCollapsed ? 'click to expand' : 'click to collapse'}</span>
+        </div>
+
+        {!posCollapsed && (
+          <>
+            {positions.length === 0 ? (
+              <div style={{ padding: '14px 18px', fontSize: '10px', color: '#94A3B8', fontStyle: 'italic' }}>
+                {oandaError ? `⚠ OANDA connection error: ${oandaError}` : 'No open positions on OANDA account.'}
+              </div>
+            ) : (
+              <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', ...mono }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                    <tr style={{ borderBottom: '1px solid #E4E4DF', color: '#6B7280', textAlign: 'left', backgroundColor: '#F7F7F5' }}>
+                      {['INSTRUMENT', 'DIRECTION', 'UNITS', 'ENTRY', 'UNREALIZED P&L', 'OPENED AT', 'DETAILS', 'CLOSE'].map(h => (
+                        <th key={h} style={{ padding: '8px 12px', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions.map(p => (
+                      <React.Fragment key={p.id}>
+                        <tr style={{ borderBottom: '1px solid #F0F0EC', backgroundColor: expandedPos === p.id ? '#F0F9FF' : (p.pnlPositive ? '#F0FDF4' : '#FFF5F5') }}>
+                          <td style={{ padding: '9px 12px', fontWeight: 800, color: '#1C3A5E', fontSize: '11px' }}>{p.instrument}</td>
+                          <td style={{ padding: '9px 12px' }}>
+                            <span style={{ padding: '2px 7px', backgroundColor: p.direction === 'BUY' ? '#DCFCE7' : '#FEE2E2', color: p.direction === 'BUY' ? '#166534' : '#991B1B', fontWeight: 800, border: `1px solid ${p.direction === 'BUY' ? '#86EFAC' : '#FCA5A5'}`, fontSize: '9px' }}>
+                              {p.direction === 'BUY' ? '▲ LONG' : '▼ SHORT'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '9px 12px', fontWeight: 600 }}>{p.units}</td>
+                          <td style={{ padding: '9px 12px' }}>{p.entryPrice}</td>
+                          <td style={{ padding: '9px 12px', fontWeight: 800, fontSize: '11px', color: p.pnlPositive ? '#16A34A' : '#DC2626' }}>{p.pnlSign}${p.unrealizedPL}</td>
+                          <td style={{ padding: '9px 12px', color: '#6B7280', whiteSpace: 'nowrap' }}>{p.openedAt}</td>
+                          <td style={{ padding: '9px 12px' }}>
+                            <button
+                              onClick={() => setExpandedPos(expandedPos === p.id ? null : p.id)}
+                              style={{ padding: '3px 8px', backgroundColor: expandedPos === p.id ? '#1C3A5E' : '#F3F4F6', color: expandedPos === p.id ? '#FFFFFF' : '#374151', border: '1px solid #D1D5DB', fontSize: '9px', cursor: 'pointer', ...mono }}
+                            >
+                              {expandedPos === p.id ? '▲ HIDE' : '▼ EXPAND'}
+                            </button>
+                          </td>
+                          <td style={{ padding: '9px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                              <button
+                                onClick={() => handleCloseTrade(p.tradeId, p.instrument)}
+                                disabled={closingTradeId === p.tradeId}
+                                style={{ padding: '4px 10px', backgroundColor: closingTradeId === p.tradeId ? '#9CA3AF' : '#DC2626', color: '#FFFFFF', border: 'none', fontSize: '9px', fontWeight: 800, cursor: closingTradeId === p.tradeId ? 'wait' : 'pointer', ...mono, whiteSpace: 'nowrap' }}
+                              >
+                                {closingTradeId === p.tradeId ? 'CLOSING...' : '✕ CLOSE TRADE'}
+                              </button>
+                              {closeMsg?.id === p.tradeId && (
+                                <div style={{ fontSize: '8px', color: closeMsg.ok ? '#16A34A' : '#DC2626', fontWeight: 700, maxWidth: '120px', lineHeight: 1.3 }}>
+                                  {closeMsg.text}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {expandedPos === p.id && (
+                          <tr style={{ backgroundColor: '#EFF6FF', borderBottom: '2px solid #BFDBFE' }}>
+                            <td colSpan={8} style={{ padding: '12px 16px' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', fontSize: '10px' }}>
+                                <div>
+                                  <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px' }}>POSITION DETAILS</div>
+                                  <div style={{ color: '#374151', lineHeight: 1.8 }}>
+                                    <div><span style={{ color: '#6B7280' }}>Trade ID: </span>{p.tradeId}</div>
+                                    <div><span style={{ color: '#6B7280' }}>Opened: </span>{p.openedAt}</div>
+                                    <div><span style={{ color: '#6B7280' }}>Financing: </span>{p.financing}</div>
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px' }}>RISK LEVELS</div>
+                                  <div style={{ color: '#374151', lineHeight: 1.8 }}>
+                                    <div><span style={{ color: '#6B7280' }}>Entry: </span><span style={{ fontWeight: 700 }}>{p.entryPrice}</span></div>
+                                    <div><span style={{ color: '#EF4444' }}>Stop Loss: </span>{p.stopLossOrderID ? 'Active' : 'Not set'}</div>
+                                    <div><span style={{ color: '#16A34A' }}>Take Profit: </span>{p.takeProfitOrderID ? 'Active' : 'Not set'}</div>
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px' }}>P&L BREAKDOWN</div>
+                                  <div style={{ color: '#374151', lineHeight: 1.8 }}>
+                                    <div><span style={{ color: '#6B7280' }}>Unrealized: </span><span style={{ fontWeight: 700, color: p.pnlPositive ? '#16A34A' : '#DC2626' }}>{p.pnlSign}${p.unrealizedPL}</span></div>
+                                    <div><span style={{ color: '#6B7280' }}>Direction: </span>{p.direction}</div>
+                                    <div><span style={{ color: '#6B7280' }}>Size: </span>{p.units} units</div>
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ color: '#DC2626', fontWeight: 700, marginBottom: '4px' }}>CLOSE POSITION</div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                    <button
+                                      onClick={() => handleCloseTrade(p.tradeId, p.instrument)}
+                                      disabled={closingTradeId === p.tradeId}
+                                      style={{ padding: '6px 14px', backgroundColor: closingTradeId === p.tradeId ? '#9CA3AF' : '#DC2626', color: '#FFFFFF', border: 'none', fontSize: '10px', fontWeight: 800, cursor: closingTradeId === p.tradeId ? 'wait' : 'pointer', ...mono }}
+                                    >
+                                      {closingTradeId === p.tradeId ? 'CLOSING POSITION...' : `✕ CLOSE ALL ${p.instrument}`}
+                                    </button>
+                                    <div style={{ fontSize: '8px', color: '#6B7280', lineHeight: 1.4 }}>Closes all {p.units} units at current market price via OANDA v20 REST API</div>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* ── Execution Log ── */}
       <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#FFFFFF' }}>
-        <div style={{ backgroundColor: '#F7F7F5', padding: '10px 16px', fontSize: '10px', fontWeight: 700, borderBottom: '1px solid #E4E4DF', color: '#1C3A5E', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '0.5px' }}>
-          <span>EXECUTION LOG — AUTO + MANUAL TRADES</span>
+        <div
+          onClick={() => setLogCollapsed(v => !v)}
+          style={{ backgroundColor: '#F7F7F5', padding: '10px 16px', fontSize: '10px', fontWeight: 700, borderBottom: '1px solid #E4E4DF', color: '#1C3A5E', display: 'flex', justifyContent: 'space-between', alignItems: 'center', letterSpacing: '0.5px', cursor: 'pointer', userSelect: 'none' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '11px' }}>{logCollapsed ? '▶' : '▼'}</span>
+            <span>EXECUTION LOG — AUTO + MANUAL TRADES</span>
+            <span style={{ padding: '1px 7px', backgroundColor: '#1C3A5E', color: '#C8F135', fontSize: '9px', fontWeight: 800 }}>{execLog.length}</span>
+          </div>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <span style={{ fontSize: '9px', color: '#6B7280', fontWeight: 400 }}>SOURCE: OANDA v20 REST API · Live</span>
-            <button onClick={fetchOandaData} style={{ padding: '2px 8px', backgroundColor: '#1C3A5E', color: '#FFFFFF', border: 'none', fontSize: '9px', cursor: 'pointer', ...mono }}>↻ REFRESH</button>
+            <button onClick={e => { e.stopPropagation(); fetchOandaData(); }} style={{ padding: '2px 8px', backgroundColor: '#1C3A5E', color: '#FFFFFF', border: 'none', fontSize: '9px', cursor: 'pointer', ...mono }}>↻ REFRESH</button>
           </div>
         </div>
-        {oandaError && (
+        {oandaError && !logCollapsed && (
           <div style={{ padding: '10px 16px', backgroundColor: '#FEF2F2', borderBottom: '1px solid #FCA5A5', fontSize: '9px', color: '#991B1B' }}>
             ⚠ {oandaError} — Showing any locally cached data.
           </div>
         )}
+        {!logCollapsed && (<div style={{ maxHeight: '380px', overflowY: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', ...mono }}>
-          <thead>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
             <tr style={{ borderBottom: '1px solid #E4E4DF', textAlign: 'left', color: '#6B7280', backgroundColor: '#FAFAFA' }}>
               {['OPENED', 'SOURCE', 'INSTRUMENT', 'DIRECTION', 'UNITS', 'FILL PRICE', 'CLOSE PRICE', 'P&L', 'STATUS'].map(h => (
                 <th key={h} style={{ padding: '8px 12px', fontWeight: 500 }}>{h}</th>
@@ -1105,6 +1227,7 @@ export default function TradePage() {
           <span>Click any row to expand trade detail and signal reasoning.</span>
           <span>{execLog.length} trade{execLog.length !== 1 ? 's' : ''} · Last refreshed: {lastRefresh}</span>
         </div>
+        </div>)}
       </div>
 
       <style>{`
