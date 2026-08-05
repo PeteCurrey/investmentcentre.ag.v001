@@ -1064,14 +1064,24 @@ export default function TradePage() {
                             <div>
                               <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px', letterSpacing: '0.5px' }}>SIGNAL / REASONING</div>
                               <div style={{ color: '#374151', lineHeight: 1.8 }}>
-                                {entry.signal
-                                  ? <span style={{ color: '#1C3A5E' }}>{entry.signal}</span>
-                                  : <span style={{ color: '#6B7280', fontStyle: 'italic' }}>
-                                      {entry.type === 'AUTO'
-                                        ? 'Automated signal — see Live Autonomous Cycle Feed above'
-                                        : 'Placed via OANDA platform or MERIDIAN manual desk'}
-                                    </span>
-                                }
+                                {entry.signal ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                    {entry.signal.split(' | ').map((part, idx) => (
+                                      <div key={idx} style={{
+                                        color: part.startsWith('[AUTOMATED') ? '#1E40AF' : (part.includes('RiskGate: APPROVED') ? '#166534' : '#1E293B'),
+                                        fontWeight: part.startsWith('[AUTOMATED') || part.includes('APPROVED') ? 700 : 400
+                                      }}>
+                                        {part}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span style={{ color: '#6B7280', fontStyle: 'italic' }}>
+                                    {entry.type === 'AUTO'
+                                      ? 'Automated technical signal — see Live Autonomous Cycle Feed above'
+                                      : 'Placed via OANDA platform or MERIDIAN manual desk'}
+                                  </span>
+                                )}
                               </div>
                             </div>
                             <div>
