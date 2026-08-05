@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import TradingViewChart from '../../../components/TradingViewChart';
+import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -107,10 +109,26 @@ const ratingColor = (r: string) => {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function TradePage() {
-  // Instrument state
+  const searchParams = useSearchParams();
+
+  // Instrument state — resolve from URL params or default
   const [instruments, setInstruments]     = useState<Instrument[]>(INSTRUMENTS);
-  const [selectedSymbol, setSelectedSymbol] = useState('XAU/USD');
+
+  // URL param pre-selection
+  const urlOandaId  = searchParams.get('instrument');
+  const urlDir      = searchParams.get('direction') as 'BUY' | 'SELL' | null;
+  const urlInst     = INSTRUMENT_UNIVERSE.find(i => i.oandaId === urlOandaId);
+  const defaultSym  = urlInst?.symbol ?? 'XAU/USD';
+
+  const [selectedSymbol, setSelectedSymbol] = useState(defaultSym);
   const [timeframe, setTimeframe]         = useState('15');
+
+  // Sync URL param changes (when navigating from other pages)
+  useEffect(() => {
+    if (urlInst) setSelectedSymbol(urlInst.symbol);
+    if (urlDir)  setDirection(urlDir);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlOandaId, urlDir]);
 
   // Manual Order state
   const [direction, setDirection]         = useState<'BUY' | 'SELL'>('BUY');
