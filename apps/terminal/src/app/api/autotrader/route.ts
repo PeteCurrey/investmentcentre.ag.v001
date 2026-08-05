@@ -5,17 +5,31 @@ import path from 'path';
 
 const STATE_PATH = path.join(process.cwd(), 'autotrader_state.json');
 
-interface AutotraderState {
+export interface CycleLogItem {
+  id: string;
+  timestamp: string;
+  instrument: string;
+  action: 'EXECUTED' | 'SKIPPED' | 'REJECTED' | 'ERROR';
+  direction?: 'BUY' | 'SELL';
+  units?: number;
+  price?: string;
+  reason: string;
+  orderId?: string;
+}
+
+export interface AutotraderState {
   enabled: boolean;
   lastToggled: string;
   cycleCount: number;
+  selectedInstruments: string[];
+  lotUnits: number;
   lastSignal: string | null;
   lastInstrument: string | null;
   lastDirection: string | null;
   lastPrice: string | null;
-  /** ISO datetime string — engine auto-pauses at this UTC time, null = no auto-stop */
+  lastCycleAt: string | null;
+  lastCycleLogs: CycleLogItem[];
   autoStopAt: string | null;
-  /** Human-readable label for the schedule (e.g. "London Close 17:00 UTC") */
   autoStopLabel: string | null;
 }
 
@@ -23,10 +37,14 @@ const DEFAULT_STATE: AutotraderState = {
   enabled: false,
   lastToggled: new Date().toISOString(),
   cycleCount: 0,
+  selectedInstruments: ['GBP/USD', 'EUR/USD', 'XAU/USD'],
+  lotUnits: 100,
   lastSignal: null,
   lastInstrument: null,
   lastDirection: null,
   lastPrice: null,
+  lastCycleAt: null,
+  lastCycleLogs: [],
   autoStopAt: null,
   autoStopLabel: null,
 };
@@ -43,7 +61,6 @@ async function readAutotraderState(): Promise<AutotraderState> {
 async function writeAutotraderState(updates: Partial<AutotraderState>): Promise<AutotraderState> {
   const current = await readAutotraderState();
 
-  // Auto-stop enforcement: if past the autoStopAt time, force disable
   let effectiveEnabled = updates.enabled !== undefined ? updates.enabled : current.enabled;
   const stopAt = updates.autoStopAt !== undefined ? updates.autoStopAt : current.autoStopAt;
   if (effectiveEnabled && stopAt && new Date() >= new Date(stopAt)) {
@@ -70,7 +87,6 @@ export async function GET() {
 
   let state = await readAutotraderState();
 
-  // Enforce auto-stop on read (so UI always shows correct state even if scheduler missed it)
   if (state.enabled && state.autoStopAt && new Date() >= new Date(state.autoStopAt)) {
     state = await writeAutotraderState({ enabled: false });
   }
@@ -83,12 +99,16 @@ export async function POST(request: Request) {
 
   const body = await request.json() as {
     enabled?: boolean;
+    selectedInstruments?: string[];
+    lotUnits?: number;
     autoStopAt?: string | null;
     autoStopLabel?: string | null;
   };
 
   const next = await writeAutotraderState({
     ...(body.enabled !== undefined && { enabled: body.enabled }),
+    ...(body.selectedInstruments !== undefined && { selectedInstruments: body.selectedInstruments }),
+    ...(body.lotUnits !== undefined && { lotUnits: body.lotUnits }),
     ...(body.autoStopAt !== undefined && { autoStopAt: body.autoStopAt }),
     ...(body.autoStopLabel !== undefined && { autoStopLabel: body.autoStopLabel }),
   });

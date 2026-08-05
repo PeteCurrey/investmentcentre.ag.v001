@@ -26,10 +26,18 @@ interface AccountSummary {
   balance: string; nav: string; unrealizedPL: string;
   pnlPositive: boolean; openTradesCount: number; currency: string;
 }
+interface CycleLogItem {
+  id: string; timestamp: string; instrument: string;
+  action: 'EXECUTED' | 'SKIPPED' | 'REJECTED' | 'ERROR';
+  direction?: 'BUY' | 'SELL'; units?: number; price?: string;
+  reason: string; orderId?: string;
+}
 interface AutotraderState {
   enabled: boolean; lastToggled: string; cycleCount: number;
+  selectedInstruments: string[]; lotUnits: number;
   lastSignal: string | null; lastInstrument: string | null;
   lastDirection: string | null; lastPrice: string | null;
+  lastCycleAt: string | null; lastCycleLogs: CycleLogItem[];
   autoStopAt: string | null; autoStopLabel: string | null;
 }
 interface AiAnalysis {
@@ -42,13 +50,13 @@ interface AiAnalysis {
 
 const INSTRUMENTS: Instrument[] = [
   { symbol: 'GBP/USD', tvSymbol: 'OANDA:GBPUSD',    price: '—', change: '—', spread: '—', oandaId: 'GBP_USD',    digits: 5 },
-  { symbol: 'EUR/USD', tvSymbol: 'OANDA:EURUSD',     price: '—', change: '—', spread: '—', oandaId: 'EUR_USD',    digits: 5 },
-  { symbol: 'USD/JPY', tvSymbol: 'OANDA:USDJPY',     price: '—', change: '—', spread: '—', oandaId: 'USD_JPY',    digits: 3 },
-  { symbol: 'EUR/GBP', tvSymbol: 'OANDA:EURGBP',     price: '—', change: '—', spread: '—', oandaId: 'EUR_GBP',    digits: 5 },
-  { symbol: 'WTI Oil', tvSymbol: 'TVC:USOIL',        price: '—', change: '—', spread: '—', oandaId: 'BCO_USD',    digits: 2 },
-  { symbol: 'SPX 500', tvSymbol: 'FOREXCOM:SPXUSD',  price: '—', change: '—', spread: '—', oandaId: 'SPX500_USD', digits: 1 },
-  { symbol: 'BTC/USD', tvSymbol: 'COINBASE:BTCUSD',  price: '—', change: '—', spread: '—', oandaId: 'BTC_USD',    digits: 2 },
-  { symbol: 'XAU/USD', tvSymbol: 'OANDA:XAUUSD',     price: '—', change: '—', spread: '—', oandaId: 'XAU_USD',    digits: 2 },
+  { symbol: 'EUR/USD', tvSymbol: 'OANDA:EURUSD',    price: '—', change: '—', spread: '—', oandaId: 'EUR_USD',    digits: 5 },
+  { symbol: 'USD/JPY', tvSymbol: 'OANDA:USDJPY',    price: '—', change: '—', spread: '—', oandaId: 'USD_JPY',    digits: 3 },
+  { symbol: 'EUR/GBP', tvSymbol: 'OANDA:EURGBP',    price: '—', change: '—', spread: '—', oandaId: 'EUR_GBP',    digits: 5 },
+  { symbol: 'WTI Oil', tvSymbol: 'TVC:USOIL',       price: '—', change: '—', spread: '—', oandaId: 'BCO_USD',    digits: 2 },
+  { symbol: 'SPX 500', tvSymbol: 'FOREXCOM:SPXUSD', price: '—', change: '—', spread: '—', oandaId: 'SPX500_USD', digits: 1 },
+  { symbol: 'BTC/USD', tvSymbol: 'COINBASE:BTCUSD', price: '—', change: '—', spread: '—', oandaId: 'BTC_USD',    digits: 2 },
+  { symbol: 'XAU/USD', tvSymbol: 'OANDA:XAUUSD',    price: '—', change: '—', spread: '—', oandaId: 'XAU_USD',    digits: 2 },
 ];
 
 const TIMEFRAMES = [
@@ -57,7 +65,6 @@ const TIMEFRAMES = [
   { label: '4H', value: '240' }, { label: '1D', value: 'D' },
 ];
 
-/** Session presets expressed as offsets from current UTC day */
 const SESSION_PRESETS = [
   { label: 'London Close',  description: '17:00 UTC',  utcHour: 17, utcMin: 0 },
   { label: 'NY Close',      description: '21:00 UTC',  utcHour: 21, utcMin: 0 },
@@ -65,12 +72,13 @@ const SESSION_PRESETS = [
   { label: 'End of Day',    description: '23:59 UTC',  utcHour: 23, utcMin: 59 },
 ];
 
+const LOT_PRESETS = [10, 100, 500, 1000, 5000];
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function buildStopTime(utcHour: number, utcMin: number): string {
   const now = new Date();
   const stop = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHour, utcMin, 0));
-  // If that time is in the past today, push to tomorrow
   if (stop <= now) stop.setUTCDate(stop.getUTCDate() + 1);
   return stop.toISOString();
 }
@@ -98,14 +106,14 @@ const ratingColor = (r: string) => {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function TradePage() {
-  // Instrument
+  // Instrument state
   const [instruments, setInstruments]     = useState<Instrument[]>(INSTRUMENTS);
   const [selectedSymbol, setSelectedSymbol] = useState('XAU/USD');
   const [timeframe, setTimeframe]         = useState('15');
 
-  // Order
+  // Manual Order state
   const [direction, setDirection]         = useState<'BUY' | 'SELL'>('BUY');
-  const [units, setUnits]                 = useState('10000');
+  const [units, setUnits]                 = useState('100');
   const [stopLoss, setStopLoss]           = useState('');
   const [takeProfit, setTakeProfit]       = useState('');
   const [orderType, setOrderType]         = useState<'MARKET' | 'LIMIT'>('MARKET');
@@ -113,30 +121,33 @@ export default function TradePage() {
   const [executing, setExecuting]         = useState(false);
   const [execMsg, setExecMsg]             = useState<{ ok: boolean; text: string } | null>(null);
 
-  // AI
+  // AI analysis
   const [aiLoading, setAiLoading]         = useState(false);
   const [aiAnalysis, setAiAnalysis]       = useState<AiAnalysis | null>(null);
   const [aiError, setAiError]             = useState<string | null>(null);
 
-  // OANDA
+  // OANDA live data
   const [positions, setPositions]         = useState<Position[]>([]);
   const [execLog, setExecLog]             = useState<ExecLogEntry[]>([]);
   const [account, setAccount]             = useState<AccountSummary | null>(null);
   const [oandaError, setOandaError]       = useState<string | null>(null);
   const [lastRefresh, setLastRefresh]     = useState<string>('—');
 
-  // Autotrader
+  // Autotrader state
   const [autotrader, setAutotrader]       = useState<AutotraderState | null>(null);
   const [autoToggling, setAutoToggling]   = useState(false);
-  const [cycleCountdown, setCycleCountdown] = useState(60); // seconds until next eval cycle
+  const [runningCycle, setRunningCycle]   = useState(false);
+  const [cycleCountdown, setCycleCountdown] = useState(60);
   const cycleRef                          = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Schedule UI
+  // Auto-Trading Settings
+  const [showConfig, setShowConfig]       = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
   const [customStopTime, setCustomStopTime] = useState('');
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [customLotUnits, setCustomLotUnits] = useState('100');
 
-  // UI
+  // UI state
   const [expandedRow, setExpandedRow]     = useState<string | null>(null);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
 
@@ -144,7 +155,7 @@ export default function TradePage() {
   const tier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
   const mono: React.CSSProperties = { fontFamily: '"DM Mono", "Fira Mono", monospace' };
 
-  // ── Data fetching ──────────────────────────────────────────────────────────
+  // ── Data Fetching ──────────────────────────────────────────────────────────
 
   const fetchOandaData = useCallback(async () => {
     try {
@@ -168,7 +179,10 @@ export default function TradePage() {
       const res = await fetch('/api/autotrader');
       if (!res.ok) return;
       const data = await res.json();
-      if (data.success) setAutotrader(data);
+      if (data.success) {
+        setAutotrader(data);
+        if (data.lotUnits) setCustomLotUnits(String(data.lotUnits));
+      }
     } catch {}
   }, []);
 
@@ -186,6 +200,20 @@ export default function TradePage() {
     } catch {}
   }, []);
 
+  // Run autonomous cycle execution endpoint
+  const runAutonomousCycle = useCallback(async () => {
+    setRunningCycle(true);
+    try {
+      const res = await fetch('/api/autotrader/run-cycle', { method: 'POST' });
+      const data = await res.json();
+      if (data.state) {
+        setAutotrader(data.state);
+      }
+      fetchOandaData();
+    } catch {}
+    setRunningCycle(false);
+  }, [fetchOandaData]);
+
   useEffect(() => {
     fetchPrices();
     fetchOandaData();
@@ -198,7 +226,7 @@ export default function TradePage() {
     return () => clearInterval(poll);
   }, [fetchOandaData, fetchPrices, fetchAutotraderState]);
 
-  // Cycle countdown — ONLY shows time until next eval. Auto mode stays ON permanently.
+  // Cycle Countdown & Execution Loop when Auto-Trading is ON
   useEffect(() => {
     if (cycleRef.current) clearInterval(cycleRef.current);
     if (autotrader?.enabled) {
@@ -206,8 +234,7 @@ export default function TradePage() {
       cycleRef.current = setInterval(() => {
         setCycleCountdown(c => {
           if (c <= 1) {
-            fetchOandaData();
-            fetchAutotraderState();
+            runAutonomousCycle();
             return 60;
           }
           return c - 1;
@@ -215,24 +242,65 @@ export default function TradePage() {
       }, 1000);
     }
     return () => { if (cycleRef.current) clearInterval(cycleRef.current); };
-  }, [autotrader?.enabled, fetchOandaData, fetchAutotraderState]);
+  }, [autotrader?.enabled, runAutonomousCycle]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleToggleAutotrader = useCallback(async () => {
     if (!autotrader || autoToggling) return;
     setAutoToggling(true);
+    const nextState = !autotrader.enabled;
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !autotrader.enabled }),
+        body: JSON.stringify({ enabled: nextState }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAutotrader(data);
+        if (nextState) {
+          // Immediately trigger a cycle on toggle ON so user sees action right away!
+          runAutonomousCycle();
+        }
+      }
+    } catch {}
+    setAutoToggling(false);
+  }, [autotrader, autoToggling, runAutonomousCycle]);
+
+  const handleToggleInstrument = useCallback(async (symbolToToggle: string) => {
+    if (!autotrader) return;
+    const current = autotrader.selectedInstruments || ['GBP/USD'];
+    const updated = current.includes(symbolToToggle)
+      ? current.filter(s => s !== symbolToToggle)
+      : [...current, symbolToToggle];
+
+    if (updated.length === 0) return; // Must keep at least 1 instrument
+
+    try {
+      const res = await fetch('/api/autotrader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selectedInstruments: updated }),
       });
       const data = await res.json();
       if (data.success) setAutotrader(data);
     } catch {}
-    setAutoToggling(false);
-  }, [autotrader, autoToggling]);
+  }, [autotrader]);
+
+  const handleSetLotUnits = useCallback(async (unitsNum: number) => {
+    if (!autotrader) return;
+    setCustomLotUnits(String(unitsNum));
+    try {
+      const res = await fetch('/api/autotrader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lotUnits: unitsNum }),
+      });
+      const data = await res.json();
+      if (data.success) setAutotrader(data);
+    } catch {}
+  }, [autotrader]);
 
   const handleSetSchedule = useCallback(async (isoTime: string, label: string) => {
     setSavingSchedule(true);
@@ -262,7 +330,7 @@ export default function TradePage() {
     setSavingSchedule(false);
   }, []);
 
-  const handleExecute = useCallback(async () => {
+  const handleExecuteManual = useCallback(async () => {
     setExecuting(true); setExecMsg(null);
     try {
       const res = await fetch('/api/trade', {
@@ -300,8 +368,6 @@ export default function TradePage() {
   }, [inst, direction, units, stopLoss, takeProfit, timeframe]);
 
   const aColor = aiAnalysis ? ratingColor(aiAnalysis.rating) : null;
-
-  // ── Auto-stop time remaining ───────────────────────────────────────────────
   const stopMsRemaining = autotrader?.autoStopAt
     ? Math.max(0, new Date(autotrader.autoStopAt).getTime() - Date.now())
     : null;
@@ -323,7 +389,7 @@ export default function TradePage() {
             onClick={() => setShowHowItWorks(v => !v)}
             style={{ padding: '5px 12px', border: '1px solid #1C3A5E', backgroundColor: showHowItWorks ? '#1C3A5E' : 'transparent', color: showHowItWorks ? '#FFFFFF' : '#1C3A5E', fontSize: '9px', cursor: 'pointer', ...mono, letterSpacing: '0.5px' }}
           >
-            {showHowItWorks ? '▲ HIDE' : '▼ HOW IT WORKS'}
+            {showHowItWorks ? '▲ HIDE PIPELINE INFO' : '▼ HOW IT WORKS'}
           </button>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '10px',
@@ -341,52 +407,33 @@ export default function TradePage() {
       {showHowItWorks && (
         <div style={{ border: '1px solid #1C3A5E', backgroundColor: '#F0F4FF', padding: '18px 20px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: '#1C3A5E', letterSpacing: '1px', marginBottom: '14px', borderBottom: '1px solid #BFDBFE', paddingBottom: '8px' }}>
-            AUTONOMOUS ENGINE — SIGNAL PIPELINE &amp; DECISION LOGIC
+            AUTONOMOUS ENGINE — MULTI-INSTRUMENT SIGNAL &amp; EXECUTION PIPELINE
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', fontSize: '10px', lineHeight: 1.8, color: '#374151' }}>
-
             <div>
               <div style={{ fontWeight: 700, color: '#1C3A5E', marginBottom: '6px', fontSize: '10px', borderLeft: '3px solid #1C3A5E', paddingLeft: '8px' }}>
-                1. INSTRUMENT SELECTION
+                1. MULTI-PAIR TARGETING &amp; SIZING
               </div>
               <div style={{ color: '#4B5563' }}>
-                The scheduler (<code style={{ fontSize: '9px', backgroundColor: '#DBEAFE', padding: '1px 4px' }}>apps/scheduler</code>) runs every <strong>60 seconds</strong>. It currently evaluates <strong>GBP/USD</strong> using the momentum signal below. Instrument selection is governed by the <code style={{ fontSize: '9px', backgroundColor: '#DBEAFE', padding: '1px 4px' }}>AutomationRule</code> in <code style={{ fontSize: '9px', backgroundColor: '#DBEAFE', padding: '1px 4px' }}>packages/automation</code> — each rule has a fixed <code>targetInstrument</code>. To add more instruments, add rules in the scheduler.
+                You control which instruments are traded automatically below. For each active pair, the engine evaluates real-time momentum and applies your configured <strong>Lot Size / Units</strong> (e.g. 100 units = 0.001 lot, $0.01/pip on EUR/USD). Gold and Indices use smart risk scaling.
               </div>
             </div>
-
             <div>
               <div style={{ fontWeight: 700, color: '#1C3A5E', marginBottom: '6px', fontSize: '10px', borderLeft: '3px solid #16A34A', paddingLeft: '8px' }}>
-                2. SIGNAL &amp; DIRECTION LOGIC
+                2. TECHNICAL SIGNAL ENGINE
               </div>
               <div style={{ color: '#4B5563' }}>
-                Each cycle:
-                <ol style={{ margin: '4px 0 0 14px', padding: 0 }}>
-                  <li>Fetch live GBP/USD spot via <strong>TwelveData API</strong></li>
-                  <li>Compare to <em>previous cycle price</em> — if price is up → <strong>BUY</strong>, down → <strong>SELL</strong></li>
-                  <li>On first cycle (no prior price): use <strong>time-of-day session bias</strong> (London 06–14 UTC = BUY, NY close = SELL)</li>
-                  <li>Pip delta and direction are written to the execution log as the <em>reasoning string</em></li>
-                </ol>
+                Every 60 seconds (or on instant trigger), live spot pricing is fetched for each active pair. The engine compares price delta to detect momentum direction (BUY/SELL), calculates 30-pip SL and 60-pip TP levels, and constructs formatted order intents.
               </div>
             </div>
-
             <div>
               <div style={{ fontWeight: 700, color: '#1C3A5E', marginBottom: '6px', fontSize: '10px', borderLeft: '3px solid #DC2626', paddingLeft: '8px' }}>
-                3. RISK GATE &amp; EXECUTION
+                3. CRYPTOGRAPHIC RISK GATE &amp; OANDA
               </div>
               <div style={{ color: '#4B5563' }}>
-                Before any order is sent, the signal passes through <strong>RiskGate</strong> (<code style={{ fontSize: '9px', backgroundColor: '#FEE2E2', padding: '1px 4px' }}>packages/risk</code>) which enforces:
-                <ul style={{ margin: '4px 0 0 14px', padding: 0 }}>
-                  <li>Daily loss limit (FTMO Standard Profile)</li>
-                  <li>Max open position count</li>
-                  <li>Session blackout windows</li>
-                  <li>Order sizing validation</li>
-                </ul>
-                If approved, a <strong>cryptographic HMAC token</strong> is issued and the order is submitted to <strong>OANDA v20 REST API</strong> via <code style={{ fontSize: '9px', backgroundColor: '#FEE2E2', padding: '1px 4px' }}>OandaBrokerAdapter</code>.
+                Every order intent must pass through <strong>RiskGate</strong> (FTMO Standard Profile checks). Upon approval, an HMAC token is generated and the order is submitted directly to OANDA v20 REST API. Every trade or skip reason is logged live.
               </div>
             </div>
-          </div>
-          <div style={{ marginTop: '12px', padding: '8px 12px', backgroundColor: '#DBEAFE', border: '1px solid #93C5FD', fontSize: '9px', color: '#1E40AF', lineHeight: 1.7 }}>
-            <strong>DATA FLOW:</strong> TwelveData API → Scheduler (momentum signal) → AutomationEngine (rule evaluation) → RiskGate (FTMO risk checks + HMAC approval) → OandaBrokerAdapter → OANDA v20 REST → Execution log (OANDA /trades endpoint) → This dashboard (live polling every 30s)
           </div>
         </div>
       )}
@@ -395,11 +442,11 @@ export default function TradePage() {
       {account && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: '#E4E4DF' }}>
           {[
-            { label: 'BALANCE',       value: `${account.currency} ${Number(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
-            { label: 'NET ASSET VALUE', value: `${account.currency} ${Number(account.nav).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
-            { label: 'UNREALIZED P&L', value: `${account.pnlPositive ? '+' : '-'}${account.currency} ${account.unrealizedPL}`, positive: account.pnlPositive },
-            { label: 'OPEN TRADES',   value: String(account.openTradesCount), positive: true },
-            { label: 'ACCOUNT',       value: 'PRACTICE', positive: true },
+            { label: 'BALANCE',         value: `${account.currency} ${Number(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
+            { label: 'NET ASSET VALUE',  value: `${account.currency} ${Number(account.nav).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
+            { label: 'UNREALIZED P&L',   value: `${account.pnlPositive ? '+' : '-'}${account.currency} ${account.unrealizedPL}`, positive: account.pnlPositive },
+            { label: 'OPEN TRADES',     value: String(account.openTradesCount), positive: true },
+            { label: 'ACCOUNT',         value: 'PRACTICE', positive: true },
           ].map(({ label, value, positive }) => (
             <div key={label} style={{ backgroundColor: '#FAFAFA', padding: '10px 14px' }}>
               <div style={{ fontSize: '9px', color: '#6B7280', letterSpacing: '1px', marginBottom: '4px' }}>{label}</div>
@@ -409,117 +456,228 @@ export default function TradePage() {
         </div>
       )}
 
-      {/* ── Auto-Trading Control Panel ── */}
+      {/* ── Auto-Trading Control Banner & Settings Panel ── */}
       <div style={{
-        border: autotrader?.enabled ? '2px solid #C8F135' : '1px solid #E4E4DF',
+        border: autotrader?.enabled ? '2px solid #22C55E' : '1px solid #E4E4DF',
         backgroundColor: autotrader?.enabled ? '#0F172A' : '#F7F7F5',
         transition: 'all 0.3s ease',
       }}>
         {/* Main control row */}
         <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
 
-          {/* Status + info */}
+          {/* Status + Info */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{
-                width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
-                backgroundColor: autotrader?.enabled ? '#C8F135' : '#6B7280',
-                boxShadow: autotrader?.enabled ? '0 0 10px #C8F135, 0 0 20px rgba(200,241,53,0.4)' : 'none',
+                width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0,
+                backgroundColor: autotrader?.enabled ? '#22C55E' : '#6B7280',
+                boxShadow: autotrader?.enabled ? '0 0 12px #22C55E, 0 0 24px rgba(34,197,94,0.5)' : 'none',
                 animation: autotrader?.enabled ? 'pulse 2s infinite' : 'none',
               }} />
-              <span style={{ fontSize: '12px', fontWeight: 700, color: autotrader?.enabled ? '#C8F135' : '#6B7280', letterSpacing: '1px' }}>
-                AUTONOMOUS ENGINE: {autotrader?.enabled ? 'ACTIVE' : 'PAUSED'}
+              <span style={{ fontSize: '13px', fontWeight: 800, color: autotrader?.enabled ? '#4ADE80' : '#6B7280', letterSpacing: '1px' }}>
+                AUTO-TRADING MODE: {autotrader?.enabled ? 'ON (ACTIVE)' : 'OFF (PAUSED)'}
               </span>
             </div>
 
             {autotrader?.enabled && (
-              <div style={{ fontSize: '10px', color: '#94A3B8', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <div style={{ fontSize: '10px', color: '#94A3B8', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <div>
-                  <span style={{ color: '#64748B' }}>STRATEGY: </span>
-                  <span style={{ color: '#E2E8F0' }}>Momentum Signal · GBP/USD · FTMO Standard Risk Profile · Size: 1,000 units</span>
+                  <span style={{ color: '#64748B' }}>ACTIVE PAIRS: </span>
+                  <span style={{ color: '#E2E8F0', fontWeight: 700 }}>
+                    {(autotrader.selectedInstruments || ['GBP/USD']).join(', ')}
+                  </span>
+                  <span style={{ color: '#64748B' }}> · </span>
+                  <span style={{ color: '#64748B' }}>LOT SIZE: </span>
+                  <span style={{ color: '#C8F135', fontWeight: 700 }}>{autotrader.lotUnits || 100} units per trade</span>
                 </div>
                 {autotrader.lastSignal && (
                   <div>
-                    <span style={{ color: '#64748B' }}>LAST SIGNAL: </span>
-                    <span style={{ color: autotrader.lastDirection === 'BUY' ? '#4ADE80' : '#F87171' }}>
+                    <span style={{ color: '#64748B' }}>LAST TRADE: </span>
+                    <span style={{ color: autotrader.lastDirection === 'BUY' ? '#4ADE80' : '#F87171', fontWeight: 700 }}>
                       {autotrader.lastDirection} {autotrader.lastInstrument} @ {autotrader.lastPrice}
                     </span>
-                    <span style={{ color: '#64748B' }}> · {autotrader.lastSignal}</span>
-                  </div>
-                )}
-                {autotrader.cycleCount > 0 && (
-                  <div>
-                    <span style={{ color: '#64748B' }}>CYCLES COMPLETED: </span>
-                    <span style={{ color: '#E2E8F0' }}>{autotrader.cycleCount}</span>
+                    <span style={{ color: '#64748B' }}> ({autotrader.lastSignal})</span>
                   </div>
                 )}
                 {autotrader.autoStopLabel && stopMsRemaining !== null && stopMsRemaining > 0 && (
                   <div>
-                    <span style={{ color: '#64748B' }}>AUTO-STOP: </span>
+                    <span style={{ color: '#64748B' }}>SCHEDULED STOP: </span>
                     <span style={{ color: '#FCD34D' }}>{autotrader.autoStopLabel}</span>
-                    <span style={{ color: '#64748B' }}> · in {formatCountdown(stopMsRemaining)}</span>
+                    <span style={{ color: '#64748B' }}> (in {formatCountdown(stopMsRemaining)})</span>
                   </div>
                 )}
               </div>
             )}
 
             {!autotrader?.enabled && (
-              <div style={{ fontSize: '10px', color: '#6B7280', paddingLeft: '18px' }}>
-                Engine is <strong>OFF</strong> — toggle to start autonomous evaluation every 60s · RiskGate enforced · Orders go to OANDA practice account
+              <div style={{ fontSize: '10px', color: '#6B7280', paddingLeft: '20px' }}>
+                Auto-trading is currently <strong>OFF</strong>. Turn ON to evaluate selected instruments every 60s &amp; execute trades on OANDA.
               </div>
             )}
           </div>
 
-          {/* Right: cycle timer + toggle + schedule */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexShrink: 0 }}>
+          {/* Controls: ON/OFF Toggle + Instant Trigger + Settings Toggles */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, flexWrap: 'wrap' }}>
             {autotrader?.enabled && (
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '22px', fontWeight: 700, color: '#C8F135', lineHeight: 1 }}>{cycleCountdown}s</div>
-                <div style={{ fontSize: '9px', color: '#64748B', letterSpacing: '1px', marginTop: '2px' }}>NEXT EVAL CYCLE</div>
-                <div style={{ fontSize: '8px', color: '#475569', marginTop: '1px' }}>engine stays ON</div>
+              <div style={{ textAlign: 'center', minWidth: '70px' }}>
+                <div style={{ fontSize: '20px', fontWeight: 800, color: '#4ADE80', lineHeight: 1 }}>{cycleCountdown}s</div>
+                <div style={{ fontSize: '8px', color: '#64748B', letterSpacing: '0.5px', marginTop: '2px' }}>NEXT CYCLE</div>
               </div>
             )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+
+            <button
+              onClick={handleToggleAutotrader}
+              disabled={autoToggling || !autotrader}
+              style={{
+                padding: '11px 22px',
+                backgroundColor: autotrader?.enabled ? '#DC2626' : '#16A34A',
+                color: '#FFFFFF', border: 'none',
+                cursor: autoToggling ? 'wait' : 'pointer',
+                fontSize: '11px', fontWeight: 800, ...mono,
+                letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                transition: 'all 0.2s ease', minWidth: '160px',
+                boxShadow: autotrader?.enabled ? '0 0 10px rgba(220,38,38,0.4)' : '0 0 10px rgba(22,163,74,0.4)',
+              }}
+            >
+              {autoToggling ? 'UPDATING...' : autotrader?.enabled ? '⏹ DISABLE AUTO-TRADING' : '▶ ENABLE AUTO-TRADING'}
+            </button>
+
+            {autotrader?.enabled && (
               <button
-                onClick={handleToggleAutotrader}
-                disabled={autoToggling || !autotrader}
+                onClick={runAutonomousCycle}
+                disabled={runningCycle}
                 style={{
-                  padding: '10px 20px',
-                  backgroundColor: autotrader?.enabled ? '#DC2626' : '#16A34A',
-                  color: '#FFFFFF', border: 'none',
-                  cursor: autoToggling ? 'wait' : 'pointer',
-                  fontSize: '11px', fontWeight: 700, ...mono,
-                  letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
-                  transition: 'all 0.2s ease', minWidth: '140px',
+                  padding: '11px 16px',
+                  backgroundColor: '#1C3A5E', color: '#C8F135',
+                  border: '1px solid #3B82F6', fontSize: '10px', fontWeight: 800,
+                  cursor: runningCycle ? 'wait' : 'pointer', ...mono,
+                  letterSpacing: '0.5px', opacity: runningCycle ? 0.6 : 1,
                 }}
               >
-                {autoToggling ? '...' : autotrader?.enabled ? '⏹ PAUSE ENGINE' : '▶ START ENGINE'}
+                {runningCycle ? 'EVALUATING...' : '⚡ RUN CYCLE NOW'}
               </button>
-              <button
-                onClick={() => setShowScheduler(v => !v)}
-                style={{
-                  padding: '5px 10px', border: '1px solid',
-                  borderColor: autotrader?.autoStopAt ? '#FCD34D' : (autotrader?.enabled ? '#334155' : '#D1D5DB'),
-                  backgroundColor: autotrader?.autoStopAt ? '#FEF3C7' : 'transparent',
-                  color: autotrader?.autoStopAt ? '#92400E' : (autotrader?.enabled ? '#94A3B8' : '#6B7280'),
-                  fontSize: '9px', cursor: 'pointer', ...mono, letterSpacing: '0.5px',
-                }}
-              >
-                {autotrader?.autoStopLabel ? `⏰ ${autotrader.autoStopLabel}` : '⏰ SET SCHEDULE'}
-              </button>
-            </div>
+            )}
+
+            <button
+              onClick={() => setShowConfig(v => !v)}
+              style={{
+                padding: '11px 14px', border: '1px solid',
+                borderColor: showConfig ? '#3B82F6' : (autotrader?.enabled ? '#334155' : '#D1D5DB'),
+                backgroundColor: showConfig ? '#1E293B' : 'transparent',
+                color: showConfig ? '#FFFFFF' : (autotrader?.enabled ? '#CBD5E1' : '#374151'),
+                fontSize: '10px', cursor: 'pointer', ...mono, fontWeight: 700,
+              }}
+            >
+              ⚙ CONFIG &amp; LOT SIZING
+            </button>
+
+            <button
+              onClick={() => setShowScheduler(v => !v)}
+              style={{
+                padding: '11px 14px', border: '1px solid',
+                borderColor: autotrader?.autoStopAt ? '#F59E0B' : (autotrader?.enabled ? '#334155' : '#D1D5DB'),
+                backgroundColor: autotrader?.autoStopAt ? '#FEF3C7' : 'transparent',
+                color: autotrader?.autoStopAt ? '#92400E' : (autotrader?.enabled ? '#CBD5E1' : '#374151'),
+                fontSize: '10px', cursor: 'pointer', ...mono, fontWeight: 700,
+              }}
+            >
+              ⏰ SCHEDULE STOP
+            </button>
           </div>
         </div>
 
-        {/* ── Schedule Panel ── */}
-        {showScheduler && (
+        {/* ── Configuration Subpanel: Instruments & Lot Sizing ── */}
+        {showConfig && autotrader && (
           <div style={{
-            borderTop: `1px solid ${autotrader?.enabled ? '#1E293B' : '#E4E4DF'}`,
-            padding: '14px 18px',
-            backgroundColor: autotrader?.enabled ? '#0A0D12' : '#FFFFFF',
+            borderTop: `1px solid ${autotrader.enabled ? '#1E293B' : '#E4E4DF'}`,
+            padding: '16px 20px',
+            backgroundColor: autotrader.enabled ? '#0A0D12' : '#FFFFFF',
+            display: 'flex', flexDirection: 'column', gap: '16px',
           }}>
-            <div style={{ fontSize: '10px', fontWeight: 700, color: autotrader?.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '10px' }}>
-              AUTO-STOP SCHEDULE — engine pauses automatically at the selected time
+            {/* Instrument Selection */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 800, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '8px' }}>
+                SELECT INSTRUMENTS TO AUTO-TRADE (CLICK TO TOGGLE):
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {instruments.map(i => {
+                  const isSelected = (autotrader.selectedInstruments || ['GBP/USD']).includes(i.symbol);
+                  return (
+                    <button
+                      key={i.symbol}
+                      onClick={() => handleToggleInstrument(i.symbol)}
+                      style={{
+                        padding: '6px 14px',
+                        backgroundColor: isSelected ? '#16A34A' : (autotrader.enabled ? '#1E293B' : '#F3F4F6'),
+                        color: isSelected ? '#FFFFFF' : (autotrader.enabled ? '#94A3B8' : '#6B7280'),
+                        border: `1px solid ${isSelected ? '#16A34A' : (autotrader.enabled ? '#334155' : '#D1D5DB')}`,
+                        fontSize: '10px', fontWeight: 700, cursor: 'pointer', ...mono,
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                      }}
+                    >
+                      <span>{isSelected ? '✓' : '+'}</span>
+                      <span>{i.symbol}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Lot Size / Units Selection */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 800, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '8px' }}>
+                CONFIGURED LOT SIZE / UNITS PER TRADE:
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {LOT_PRESETS.map(u => {
+                  const isSelected = (autotrader.lotUnits || 100) === u;
+                  return (
+                    <button
+                      key={u}
+                      onClick={() => handleSetLotUnits(u)}
+                      style={{
+                        padding: '6px 14px',
+                        backgroundColor: isSelected ? '#1C3A5E' : (autotrader.enabled ? '#1E293B' : '#F3F4F6'),
+                        color: isSelected ? '#C8F135' : (autotrader.enabled ? '#94A3B8' : '#374151'),
+                        border: `1px solid ${isSelected ? '#C8F135' : (autotrader.enabled ? '#334155' : '#D1D5DB')}`,
+                        fontSize: '10px', fontWeight: 700, cursor: 'pointer', ...mono,
+                      }}
+                    >
+                      {u.toLocaleString()} units {u === 100 ? '(0.001 Lot - Recommended)' : u === 1000 ? '(0.01 Lot)' : ''}
+                    </button>
+                  );
+                })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px' }}>
+                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Custom:</span>
+                  <input
+                    type="number"
+                    value={customLotUnits}
+                    onChange={e => setCustomLotUnits(e.target.value)}
+                    onBlur={() => {
+                      const num = parseInt(customLotUnits, 10);
+                      if (num > 0) handleSetLotUnits(num);
+                    }}
+                    style={{ width: '80px', padding: '5px 8px', border: '1px solid #D1D5DB', ...mono, fontSize: '10px', color: '#14181B' }}
+                  />
+                  <span style={{ fontSize: '9px', color: '#6B7280' }}>units</span>
+                </div>
+              </div>
+              <div style={{ fontSize: '9px', color: autotrader.enabled ? '#64748B' : '#6B7280', marginTop: '6px' }}>
+                💡 <strong>Safety note:</strong> 100 units on Forex = 0.001 lot (~$0.01/pip). Prevents oversized trades on OANDA practice account. Gold (XAU/USD) is automatically scaled (1 unit = 1 oz).
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Schedule Subpanel ── */}
+        {showScheduler && autotrader && (
+          <div style={{
+            borderTop: `1px solid ${autotrader.enabled ? '#1E293B' : '#E4E4DF'}`,
+            padding: '16px 20px',
+            backgroundColor: autotrader.enabled ? '#0A0D12' : '#FFFFFF',
+          }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '10px' }}>
+              AUTO-STOP SCHEDULE — engine automatically disables at chosen time
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
               {SESSION_PRESETS.map(preset => (
@@ -529,9 +687,9 @@ export default function TradePage() {
                   onClick={() => handleSetSchedule(buildStopTime(preset.utcHour, preset.utcMin), `${preset.label} ${preset.description}`)}
                   style={{
                     padding: '7px 12px', border: '1px solid',
-                    borderColor: autotrader?.autoStopLabel?.startsWith(preset.label) ? '#F59E0B' : '#D1D5DB',
-                    backgroundColor: autotrader?.autoStopLabel?.startsWith(preset.label) ? '#FEF3C7' : '#F9FAFB',
-                    color: autotrader?.autoStopLabel?.startsWith(preset.label) ? '#92400E' : '#374151',
+                    borderColor: autotrader.autoStopLabel?.startsWith(preset.label) ? '#F59E0B' : '#D1D5DB',
+                    backgroundColor: autotrader.autoStopLabel?.startsWith(preset.label) ? '#FEF3C7' : '#F9FAFB',
+                    color: autotrader.autoStopLabel?.startsWith(preset.label) ? '#92400E' : '#374151',
                     fontSize: '10px', cursor: 'pointer', ...mono,
                   }}
                 >
@@ -559,7 +717,7 @@ export default function TradePage() {
               >
                 SET CUSTOM TIME
               </button>
-              {autotrader?.autoStopAt && (
+              {autotrader.autoStopAt && (
                 <button
                   onClick={handleClearSchedule}
                   disabled={savingSchedule}
@@ -569,15 +727,58 @@ export default function TradePage() {
                 </button>
               )}
             </div>
-            {autotrader?.autoStopAt && (
-              <div style={{ marginTop: '8px', fontSize: '9px', color: autotrader?.enabled ? '#94A3B8' : '#6B7280' }}>
-                Engine will auto-pause at <strong>{new Date(autotrader.autoStopAt).toLocaleString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })} UTC</strong>
-                {stopMsRemaining !== null && stopMsRemaining > 0 && ` · in ${formatCountdown(stopMsRemaining)}`}
-              </div>
-            )}
           </div>
         )}
       </div>
+
+      {/* ── Autonomous Cycle Feed / Log Section ── */}
+      {autotrader?.lastCycleLogs && autotrader.lastCycleLogs.length > 0 && (
+        <div style={{ border: '1px solid #1C3A5E', backgroundColor: '#0F172A', color: '#F8FAFC', padding: '14px 18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid #1E293B', paddingBottom: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#4ADE80', letterSpacing: '1px' }}>
+              ⚡ LIVE AUTONOMOUS CYCLE FEED — EVALUATION &amp; DECISION LOGS
+            </div>
+            <div style={{ fontSize: '9px', color: '#94A3B8' }}>
+              Cycles Completed: <span style={{ color: '#C8F135', fontWeight: 700 }}>{autotrader.cycleCount}</span> · Last Cycle: {autotrader.lastCycleAt ? new Date(autotrader.lastCycleAt).toLocaleTimeString() : '—'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto', fontSize: '10px', ...mono }}>
+            {autotrader.lastCycleLogs.slice(0, 10).map((logItem) => {
+              const isExec = logItem.action === 'EXECUTED';
+              const isRej = logItem.action === 'REJECTED';
+              return (
+                <div key={logItem.id} style={{
+                  padding: '6px 10px',
+                  backgroundColor: isExec ? '#162312' : (isRej ? '#2A1212' : '#1E293B'),
+                  borderLeft: `4px solid ${isExec ? '#22C55E' : (isRej ? '#EF4444' : '#64748B')}`,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px',
+                }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#64748B', fontSize: '9px' }}>{logItem.timestamp}</span>
+                    <span style={{ fontWeight: 700, color: '#38BDF8' }}>{logItem.instrument}</span>
+                    <span style={{
+                      padding: '1px 6px', fontSize: '8px', fontWeight: 800,
+                      backgroundColor: isExec ? '#22C55E' : (isRej ? '#EF4444' : '#475569'),
+                      color: '#FFFFFF',
+                    }}>
+                      {logItem.action}
+                    </span>
+                    {logItem.direction && (
+                      <span style={{ fontWeight: 800, color: logItem.direction === 'BUY' ? '#4ADE80' : '#F87171' }}>
+                        {logItem.direction} {logItem.units} units @ {logItem.price}
+                      </span>
+                    )}
+                    <span style={{ color: '#CBD5E1' }}>{logItem.reason}</span>
+                  </div>
+                  {logItem.orderId && (
+                    <span style={{ fontSize: '8px', color: '#64748B', flexShrink: 0 }}>ID: {logItem.orderId}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Instrument Selector ── */}
       <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
@@ -629,7 +830,7 @@ export default function TradePage() {
         </div>
       </div>
 
-      {/* ── Chart + Order Panel ── */}
+      {/* ── Chart + Manual Order Panel ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 330px', gap: '14px', alignItems: 'start' }}>
         <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#0A0D12', display: 'flex', flexDirection: 'column' }}>
           <div style={{ backgroundColor: '#0F172A', color: '#F8FAFC', padding: '8px 14px', fontSize: '10px', borderBottom: '1px solid #1E293B', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -656,9 +857,9 @@ export default function TradePage() {
             <button onClick={() => setDirection('BUY')} style={{ padding: '11px', backgroundColor: direction === 'BUY' ? '#16A34A' : '#F7F7F5', color: direction === 'BUY' ? '#FFFFFF' : '#6B7280', border: `1px solid ${direction === 'BUY' ? '#16A34A' : '#E4E4DF'}`, fontSize: '12px', cursor: 'pointer', ...mono, fontWeight: 800 }}>▲ BUY</button>
             <button onClick={() => setDirection('SELL')} style={{ padding: '11px', backgroundColor: direction === 'SELL' ? '#DC2626' : '#F7F7F5', color: direction === 'SELL' ? '#FFFFFF' : '#6B7280', border: `1px solid ${direction === 'SELL' ? '#DC2626' : '#E4E4DF'}`, fontSize: '12px', cursor: 'pointer', ...mono, fontWeight: 800 }}>▼ SELL</button>
           </div>
-          {/* Order Params */}
+          {/* Manual Order Params */}
           <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#FFFFFF', padding: '14px' }}>
-            <div style={{ fontSize: '10px', color: '#1C3A5E', fontWeight: 600, borderBottom: '1px solid #E4E4DF', paddingBottom: '8px', marginBottom: '10px', letterSpacing: '0.5px' }}>ORDER PARAMETERS</div>
+            <div style={{ fontSize: '10px', color: '#1C3A5E', fontWeight: 600, borderBottom: '1px solid #E4E4DF', paddingBottom: '8px', marginBottom: '10px', letterSpacing: '0.5px' }}>MANUAL ORDER PARAMETERS</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '10px' }}>
               <div>
                 <label style={{ color: '#6B7280', display: 'block', marginBottom: '3px' }}>UNITS / VOLUME</label>
@@ -686,8 +887,8 @@ export default function TradePage() {
                 {execMsg.text}
               </div>
             )}
-            <button onClick={handleExecute} disabled={executing} style={{ width: '100%', marginTop: '10px', padding: '12px', backgroundColor: direction === 'BUY' ? '#16A34A' : '#DC2626', color: '#FFFFFF', border: 'none', ...mono, fontSize: '10px', fontWeight: 800, letterSpacing: '1.5px', cursor: executing ? 'wait' : 'pointer', opacity: executing ? 0.7 : 1 }}>
-              {executing ? 'ROUTING VIA RISK GATE...' : `SUBMIT ${direction} TO OANDA →`}
+            <button onClick={handleExecuteManual} disabled={executing} style={{ width: '100%', marginTop: '10px', padding: '12px', backgroundColor: direction === 'BUY' ? '#16A34A' : '#DC2626', color: '#FFFFFF', border: 'none', ...mono, fontSize: '10px', fontWeight: 800, letterSpacing: '1.5px', cursor: executing ? 'wait' : 'pointer', opacity: executing ? 0.7 : 1 }}>
+              {executing ? 'ROUTING VIA RISK GATE...' : `SUBMIT MANUAL ${direction} TO OANDA →`}
             </button>
           </div>
 
@@ -846,7 +1047,7 @@ export default function TradePage() {
                                   ? <span style={{ color: '#1C3A5E' }}>{entry.signal}</span>
                                   : <span style={{ color: '#6B7280', fontStyle: 'italic' }}>
                                       {entry.type === 'AUTO'
-                                        ? 'Automated signal — start scheduler to see detailed reasoning'
+                                        ? 'Automated signal — see Live Autonomous Cycle Feed above'
                                         : 'Placed via OANDA platform or MERIDIAN manual desk'}
                                     </span>
                                 }
