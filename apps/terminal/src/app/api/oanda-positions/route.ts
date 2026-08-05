@@ -163,8 +163,10 @@ export async function GET() {
       ? {
           balance: parseFloat(acc.balance || '0').toFixed(2),
           nav: parseFloat(acc.NAV || '0').toFixed(2),
-          unrealizedPL: parseFloat(acc.unrealizedPL || '0').toFixed(2),
+          unrealizedPL: Math.abs(parseFloat(acc.unrealizedPL || '0')).toFixed(2),
           pnlPositive: parseFloat(acc.unrealizedPL || '0') >= 0,
+          realizedPL: Math.abs(parseFloat(acc.pl || '0')).toFixed(2),
+          realizedPnlPositive: parseFloat(acc.pl || '0') >= 0,
           openTradesCount: acc.openTradeCount || 0,
           currency: acc.currency || 'USD'
         }

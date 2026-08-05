@@ -28,7 +28,8 @@ interface Position {
 }
 interface AccountSummary {
   balance: string; nav: string; unrealizedPL: string;
-  pnlPositive: boolean; openTradesCount: number; currency: string;
+  pnlPositive: boolean; realizedPL: string; realizedPnlPositive: boolean;
+  openTradesCount: number; currency: string;
 }
 interface CycleLogItem {
   id: string; timestamp: string; instrument: string;
@@ -734,17 +735,18 @@ function TradePageInner() {
 
       {/* ── Account Summary Strip ── */}
       {account && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', backgroundColor: '#E4E4DF' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '1px', backgroundColor: '#E4E4DF' }}>
           {[
             { label: 'BALANCE',         value: `${account.currency} ${Number(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
             { label: 'NET ASSET VALUE',  value: `${account.currency} ${Number(account.nav).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, positive: true },
+            { label: 'REALIZED P&L',     value: `${account.realizedPnlPositive ? '+' : '-'}${account.currency} ${account.realizedPL}`, positive: account.realizedPnlPositive },
             { label: 'UNREALIZED P&L',   value: `${account.pnlPositive ? '+' : '-'}${account.currency} ${account.unrealizedPL}`, positive: account.pnlPositive },
             { label: 'OPEN TRADES',     value: String(account.openTradesCount), positive: true },
             { label: 'ACCOUNT',         value: 'PRACTICE', positive: true },
           ].map(({ label, value, positive }) => (
             <div key={label} style={{ backgroundColor: '#FAFAFA', padding: '10px 14px' }}>
               <div style={{ fontSize: '9px', color: '#6B7280', letterSpacing: '1px', marginBottom: '4px' }}>{label}</div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: label === 'UNREALIZED P&L' ? (positive ? '#16A34A' : '#DC2626') : '#14181B' }}>{value}</div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: (label === 'UNREALIZED P&L' || label === 'REALIZED P&L') ? (positive ? '#16A34A' : '#DC2626') : '#14181B' }}>{value}</div>
             </div>
           ))}
         </div>
