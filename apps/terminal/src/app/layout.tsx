@@ -1,5 +1,14 @@
 import React from 'react';
+import { DM_Mono } from 'next/font/google';
 import './globals.css';
+
+const dmMono = DM_Mono({
+  weight: ['300', '400', '500'],
+  style: ['normal', 'italic'],
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-dm-mono',
+});
 
 export const metadata = {
   title: 'MERIDIAN — Master Intelligence Console',
@@ -12,8 +21,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" className={dmMono.variable}>
+      <body className={dmMono.className}>
         {children}
       </body>
     </html>

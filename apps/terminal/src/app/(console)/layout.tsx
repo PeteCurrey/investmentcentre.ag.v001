@@ -39,7 +39,7 @@ export default function ConsoleLayout({
         justifyContent: 'space-between',
         padding: '0 24px',
         fontSize: '13px',
-        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif'
+        fontFamily: '"DM Mono", "Fira Mono", monospace'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <span style={{ fontWeight: 700, letterSpacing: '1.5px', color: '#0F172A', fontSize: '14px' }}>MERIDIAN</span>
