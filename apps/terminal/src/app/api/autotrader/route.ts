@@ -65,7 +65,6 @@ async function writeAutotraderState(updates: Partial<AutotraderState>): Promise<
   let stopAt = updates.autoStopAt !== undefined ? updates.autoStopAt : current.autoStopAt;
   let stopLabel = updates.autoStopLabel !== undefined ? updates.autoStopLabel : current.autoStopLabel;
 
-  // If explicitly enabling, clear any past/expired autoStop schedule so it doesn't immediately shut down
   if (updates.enabled === true) {
     if (stopAt && new Date() >= new Date(stopAt)) {
       stopAt = null;
@@ -73,7 +72,6 @@ async function writeAutotraderState(updates: Partial<AutotraderState>): Promise<
     }
   }
 
-  // Auto-stop enforcement if engine is running and schedule is reached
   if (effectiveEnabled && stopAt && new Date() >= new Date(stopAt)) {
     effectiveEnabled = false;
     stopAt = null;
@@ -100,10 +98,21 @@ async function auth() {
 export async function GET() {
   if (!(await auth())) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
 
+  const cookieStore = await cookies();
+  const cookieEnabled = cookieStore.get('console_autotrader_enabled')?.value === 'true';
+
   let state = await readAutotraderState();
+
+  // Respect cookie state if present (fixes ephemeral serverless lambda state)
+  if (cookieEnabled !== undefined) {
+    state.enabled = cookieEnabled;
+  }
 
   if (state.enabled && state.autoStopAt && new Date() >= new Date(state.autoStopAt)) {
     state = await writeAutotraderState({ enabled: false, autoStopAt: null, autoStopLabel: null });
+    const response = NextResponse.json({ success: true, ...state });
+    response.cookies.set('console_autotrader_enabled', 'false', { path: '/', httpOnly: false });
+    return response;
   }
 
   return NextResponse.json({ success: true, ...state });
@@ -128,5 +137,15 @@ export async function POST(request: Request) {
     ...(body.autoStopLabel !== undefined && { autoStopLabel: body.autoStopLabel }),
   });
 
-  return NextResponse.json({ success: true, ...next });
+  const response = NextResponse.json({ success: true, ...next });
+
+  if (body.enabled !== undefined) {
+    response.cookies.set('console_autotrader_enabled', body.enabled ? 'true' : 'false', {
+      path: '/',
+      httpOnly: false,
+      maxAge: 60 * 60 * 24 * 30 // 30 days persistence
+    });
+  }
+
+  return response;
 }

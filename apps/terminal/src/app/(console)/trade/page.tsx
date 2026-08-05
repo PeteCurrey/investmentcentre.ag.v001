@@ -176,10 +176,15 @@ export default function TradePage() {
 
   const fetchAutotraderState = useCallback(async () => {
     try {
+      const savedLocal = typeof window !== 'undefined' ? localStorage.getItem('meridian_autotrader_enabled') : null;
       const res = await fetch('/api/autotrader');
       if (!res.ok) return;
       const data = await res.json();
       if (data.success) {
+        // If localStorage has explicit user preference, ensure it is honored
+        if (savedLocal !== null) {
+          data.enabled = savedLocal === 'true';
+        }
         setAutotrader(data);
         if (data.lotUnits) setCustomLotUnits(String(data.lotUnits));
       }
@@ -209,10 +214,12 @@ export default function TradePage() {
       if (data.state) {
         setAutotrader(prev => {
           if (!prev) return data.state;
-          // Maintain enabled status unless explicitly auto-stopped by schedule
+          const currentEnabled = typeof window !== 'undefined'
+            ? localStorage.getItem('meridian_autotrader_enabled') === 'true'
+            : prev.enabled;
           return {
             ...data.state,
-            enabled: data.state.enabled !== undefined ? data.state.enabled : prev.enabled
+            enabled: currentEnabled
           };
         });
       }
@@ -258,6 +265,10 @@ export default function TradePage() {
     setAutoToggling(true);
     const nextState = !autotrader.enabled;
 
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('meridian_autotrader_enabled', nextState ? 'true' : 'false');
+    }
+
     // Optimistically set state so UI card immediately reflects state change
     setAutotrader(prev => prev ? { ...prev, enabled: nextState } : prev);
 
@@ -269,9 +280,8 @@ export default function TradePage() {
       });
       const data = await res.json();
       if (data.success) {
-        setAutotrader(data);
+        setAutotrader(prev => ({ ...data, enabled: nextState }));
         if (nextState) {
-          // Immediately trigger a cycle on toggle ON so user sees action right away!
           runAutonomousCycle();
         }
       }
@@ -546,11 +556,11 @@ export default function TradePage() {
                 cursor: autoToggling ? 'wait' : 'pointer',
                 fontSize: '11px', fontWeight: 800, ...mono,
                 letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
-                transition: 'all 0.2s ease', minWidth: '160px',
-                boxShadow: autotrader?.enabled ? '0 0 10px rgba(220,38,38,0.4)' : '0 0 10px rgba(22,163,74,0.4)',
+                transition: 'all 0.2s ease', minWidth: '170px',
+                boxShadow: autotrader?.enabled ? '0 0 14px rgba(220,38,38,0.5)' : '0 0 14px rgba(22,163,74,0.5)',
               }}
             >
-              {autoToggling ? 'UPDATING...' : autotrader?.enabled ? '⏹ DISABLE AUTO-TRADING' : '▶ ENABLE AUTO-TRADING'}
+              {autoToggling ? 'UPDATING...' : autotrader?.enabled ? '⏹ STOP AUTO TRADING' : '▶ START AUTO TRADING'}
             </button>
 
             {autotrader?.enabled && (

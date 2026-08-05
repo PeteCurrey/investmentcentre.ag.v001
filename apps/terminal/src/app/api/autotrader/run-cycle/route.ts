@@ -102,7 +102,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
+  const cookieEnabled = cookieStore.get('console_autotrader_enabled')?.value;
   const state = await readAutotraderState();
+
+  // Rely on persistent cookie if set
+  if (cookieEnabled === 'true') {
+    state.enabled = true;
+  } else if (cookieEnabled === 'false') {
+    state.enabled = false;
+  }
 
   // 1. Verify engine is active
   if (!state.enabled) {
@@ -119,11 +127,14 @@ export async function POST(request: Request) {
     state.autoStopAt = null;
     state.autoStopLabel = null;
     await writeAutotraderState(state);
-    return NextResponse.json({
+
+    const res = NextResponse.json({
       success: false,
-      reason: `Auto-stop schedule (${state.autoStopLabel || 'specified time'}) reached. Engine automatically paused.`,
+      reason: `Auto-stop schedule reached. Engine automatically paused.`,
       state
     });
+    res.cookies.set('console_autotrader_enabled', 'false', { path: '/' });
+    return res;
   }
 
   // 3. Verify server execution configuration
@@ -221,7 +232,6 @@ export async function POST(request: Request) {
     const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-    // Derive current spot price for instrument
     let spotPrice = baseGbpUsd;
     if (symbol === 'EUR/USD') spotPrice = parseFloat((baseGbpUsd * 0.825).toFixed(4));
     else if (symbol === 'USD/JPY') spotPrice = parseFloat((156.42 / baseGbpUsd).toFixed(2));
@@ -233,7 +243,6 @@ export async function POST(request: Request) {
     currentPrices[symbol] = spotPrice;
     const prevSpot = prevPrices[symbol] || null;
 
-    // Technical Direction Determination
     let direction: 'BUY' | 'SELL';
     let signalReason: string;
 
@@ -249,13 +258,11 @@ export async function POST(request: Request) {
       signalReason = `Momentum ${delta >= 0 ? '↑' : '↓'} ${pips} pips (${prevSpot} → ${spotPrice})`;
     }
 
-    // Instrument Sizing Protection (Gold 1 unit = 1 troy oz)
     let unitsToTrade = configuredUnits;
     if (symbol === 'XAU/USD') unitsToTrade = Math.min(configuredUnits, 1);
     else if (symbol === 'SPX 500' || symbol === 'WTI Oil') unitsToTrade = Math.min(configuredUnits, 10);
     else if (symbol === 'BTC/USD') unitsToTrade = 1;
 
-    // SL and TP calculation
     const dp = getDecimalPlaces(symbol);
     const pipVal = getPipValue(symbol);
     const slDistance = 30 * pipVal;
@@ -291,7 +298,6 @@ export async function POST(request: Request) {
       requestedAt: new Date().toISOString()
     };
 
-    // Evaluate RiskGate Rules Engine
     const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, {
       accountId,
       startingDailyBalance: accountState.balance.price,
@@ -317,7 +323,6 @@ export async function POST(request: Request) {
       continue;
     }
 
-    // Submit Order to OANDA
     const submitResult = await adapter.submitOrder(intent, decision.token);
 
     if (!submitResult.success) {
@@ -339,7 +344,6 @@ export async function POST(request: Request) {
       ? moneyToString({ amount: filledOrder.fillPrice.price, scale: filledOrder.fillPrice.scale, currency: filledOrder.fillPrice.currency })
       : entryStr;
 
-    // Record execution to trades_db.json
     const fullReasoning = `${signalReason} | SL: ${slStr} | TP: ${tpStr} | RiskGate: APPROVED | Size: ${unitsToTrade} units`;
     await recordTradeToDb({
       id: `log_auto_${Date.now()}`,
@@ -373,7 +377,6 @@ export async function POST(request: Request) {
     state.lastPrice = fillPriceVal;
   }
 
-  // Update State
   state.cycleCount = (state.cycleCount || 0) + 1;
   state.lastCycleAt = new Date().toISOString();
   state.previousPrices = { ...prevPrices, ...currentPrices };
