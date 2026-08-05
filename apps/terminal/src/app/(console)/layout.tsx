@@ -78,10 +78,7 @@ export default function ConsoleLayout({
         }
         if (atRes.ok) {
           const atData = await atRes.json();
-          const cookieEnabled = typeof window !== 'undefined'
-            ? localStorage.getItem('meridian_autotrader_enabled') === 'true'
-            : false;
-          setAutoEnabled(atData.enabled || cookieEnabled);
+          setAutoEnabled(atData.mode ? atData.mode !== 'OBSERVE' : Boolean(atData.enabled));
         }
       } catch {}
     };

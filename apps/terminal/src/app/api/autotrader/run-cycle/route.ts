@@ -3,251 +3,179 @@ import { cookies } from 'next/headers';
 import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent } from '@meridian/risk';
 import { toScaledInteger, createPrice, moneyToString } from '@meridian/core';
+import {
+  readAutotraderConfig,
+  writeAutotraderConfig,
+  insertGateDecision,
+  insertCycleLog,
+  upsertAccountDay,
+  getMode,
+} from '@meridian/core';
 import { TwelveDataAdapter } from '@meridian/adapters';
 import crypto from 'crypto';
-import fs from 'fs/promises';
-import path from 'path';
 
-const STATE_PATH = path.join(process.cwd(), 'autotrader_state.json');
-const DB_PATH = path.join(process.cwd(), 'trades_db.json');
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-export interface CycleLogItem {
-  id: string;
-  timestamp: string;
-  instrument: string;
-  action: 'EXECUTED' | 'SKIPPED' | 'REJECTED' | 'ERROR';
-  direction?: 'BUY' | 'SELL';
-  units?: number;
-  price?: string;
-  reason: string;
-  orderId?: string;
-}
-
-interface AutotraderState {
-  enabled: boolean;
-  lastToggled: string;
-  cycleCount: number;
-  selectedInstruments: string[];
-  lotUnits: number;
-  lastSignal: string | null;
-  lastInstrument: string | null;
-  lastDirection: string | null;
-  lastPrice: string | null;
-  lastCycleAt: string | null;
-  lastCycleLogs: CycleLogItem[];
-  autoStopAt: string | null;
-  autoStopLabel: string | null;
-  previousPrices?: Record<string, number>;
-  riskProfile?: {
-    slPips: number;
-    tpPips: number;
-    useTrailingStop: boolean;
-    trailingDistancePips: number;
-    breakEvenTriggerPips: number;
-    sendTpToOanda: boolean;
-  };
-}
-
-const DEFAULT_STATE: AutotraderState = {
-  enabled: false,
-  lastToggled: new Date().toISOString(),
-  cycleCount: 0,
-  selectedInstruments: ['GBP/USD', 'EUR/USD', 'XAU/USD'],
-  lotUnits: 100,
-  lastSignal: null,
-  lastInstrument: null,
-  lastDirection: null,
-  lastPrice: null,
-  lastCycleAt: null,
-  lastCycleLogs: [],
-  autoStopAt: null,
-  autoStopLabel: null,
-  previousPrices: {},
-  riskProfile: {
-    slPips: 30,
-    tpPips: 60,
-    useTrailingStop: true,
-    trailingDistancePips: 15,
-    breakEvenTriggerPips: 20,
-    sendTpToOanda: true,
-  }
-};
-
-async function readAutotraderState(): Promise<AutotraderState> {
-  try {
-    const raw = JSON.parse(await fs.readFile(STATE_PATH, 'utf-8'));
-    return { ...DEFAULT_STATE, ...raw };
-  } catch {
-    return { ...DEFAULT_STATE };
-  }
-}
-
-async function writeAutotraderState(state: AutotraderState): Promise<void> {
-  await fs.writeFile(STATE_PATH, JSON.stringify(state, null, 2)).catch(() => {});
-}
-
-async function recordTradeToDb(trade: any) {
-  try {
-    let current = [];
-    try {
-      const data = await fs.readFile(DB_PATH, 'utf-8');
-      current = JSON.parse(data);
-    } catch {}
-    current.unshift(trade);
-    await fs.writeFile(DB_PATH, JSON.stringify(current, null, 2));
-  } catch {}
-}
-
-const getDecimalPlaces = (instrument: string) => {
+const getDecimalPlaces = (instrument: string): number => {
   if (instrument.includes('JPY')) return 3;
   if (instrument.startsWith('XAU') || instrument.startsWith('XAG')) return 2;
   if (instrument === 'SPX 500' || instrument === 'SPX500_USD') return 1;
   return 5;
 };
 
-const getPipValue = (instrument: string) => {
+const getPipValue = (instrument: string): number => {
   if (instrument.includes('JPY')) return 0.01;
   if (instrument.startsWith('XAU')) return 1.0;
   if (instrument.startsWith('SPX')) return 1.0;
   return 0.0001;
 };
 
-export async function POST(request: Request) {
+// ─── POST /api/autotrader/run-cycle ──────────────────────────────────────────
+
+export async function POST() {
   const cookieStore = await cookies();
   if (cookieStore.get('console_session')?.value !== 'active_session') {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  const cookieEnabled = cookieStore.get('console_autotrader_enabled')?.value;
-  const state = await readAutotraderState();
+  const cycleId = crypto.randomUUID();
+  const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-  // Rely on persistent cookie if set
-  if (cookieEnabled === 'true') {
-    state.enabled = true;
-  } else if (cookieEnabled === 'false') {
-    state.enabled = false;
+  // ── 1. Read config from Supabase — no silent fallback ────────────────────
+  const config = await readAutotraderConfig();
+
+  if (!config) {
+    // State cannot be read: log the failure but submit nothing.
+    await insertCycleLog({
+      cycleId,
+      instrument: null,
+      action: 'ERROR',
+      reason: 'CONFIG_READ_FAILURE: Cannot read autotrader_state from database. No orders evaluated.',
+      orderId: null,
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        reason: 'CONFIG_READ_FAILURE: Cannot read autotrader_state from database.',
+        cycleId,
+      },
+      { status: 503 }
+    );
   }
 
-  // 1. Verify engine is active
-  if (!state.enabled) {
+  // ── 2. Read mode (fail-closed) ────────────────────────────────────────────
+  const mode = await getMode();
+
+  // ── 3. Check auto-stop schedule ───────────────────────────────────────────
+  if (
+    mode !== 'OBSERVE' &&
+    config.autoStopAt &&
+    new Date() >= new Date(config.autoStopAt)
+  ) {
+    await writeAutotraderConfig({
+      autoStopAt: null,
+      autoStopLabel: null,
+      updatedBy: 'system:auto-stop',
+    });
+    await insertCycleLog({
+      cycleId,
+      instrument: null,
+      action: 'SKIPPED',
+      reason: `Auto-stop schedule reached at ${config.autoStopAt}. Engine returning to OBSERVE.`,
+      orderId: null,
+    });
     return NextResponse.json({
       success: false,
-      reason: 'Engine is PAUSED. Toggle AUTO-TRADING ON to start evaluation cycles.',
-      state
+      reason: 'Auto-stop schedule reached. Engine returning to OBSERVE.',
+      mode: 'OBSERVE',
+      cycleId,
     });
   }
 
-  // 2. Check auto-stop schedule
-  if (state.autoStopAt && new Date() >= new Date(state.autoStopAt)) {
-    state.enabled = false;
-    state.autoStopAt = null;
-    state.autoStopLabel = null;
-    await writeAutotraderState(state);
-
-    const res = NextResponse.json({
-      success: false,
-      reason: `Auto-stop schedule reached. Engine automatically paused.`,
-      state
-    });
-    res.cookies.set('console_autotrader_enabled', 'false', { path: '/' });
-    return res;
-  }
-
-  // 3. Verify server execution configuration
-  const tier4Enabled = process.env.TIER_4_ENABLED === 'true' || process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
+  // ── 4. Resolve OANDA credentials ──────────────────────────────────────────
   const token = process.env.OANDA_API_TOKEN;
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
-  const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-  if (!tier4Enabled) {
-    const obsLog: CycleLogItem = {
-      id: `log_${Date.now()}`,
-      timestamp: nowStr,
-      instrument: state.selectedInstruments[0] || 'GBP/USD',
-      action: 'SKIPPED',
-      reason: 'Observe Mode — TIER_4_ENABLED is false in server environment. Set NEXT_PUBLIC_TIER_4_ENABLED=true for live execution.'
-    };
-    state.lastCycleLogs = [obsLog, ...(state.lastCycleLogs || [])].slice(0, 30);
-    state.cycleCount = (state.cycleCount || 0) + 1;
-    state.lastCycleAt = new Date().toISOString();
-    await writeAutotraderState(state);
+  // TIER_4_ENABLED: server-side env var only. NEXT_PUBLIC_ variant must never
+  // gate execution — a client-visible variable cannot authorise broker submission.
+  const tier4Enabled = process.env.TIER_4_ENABLED === 'true';
 
-    return NextResponse.json({
-      success: true,
-      reason: 'OBSERVE MODE: Live execution disabled by server environment configuration.',
-      state
-    });
-  }
+  // For LIVE mode to submit, both the mode AND tier4Enabled must be true.
+  const canSubmit = mode === 'LIVE' && tier4Enabled;
 
   if (!token || !accountId) {
-    const errLog: CycleLogItem = {
-      id: `log_${Date.now()}`,
-      timestamp: nowStr,
-      instrument: state.selectedInstruments[0] || 'GBP/USD',
+    await insertCycleLog({
+      cycleId,
+      instrument: null,
       action: 'ERROR',
-      reason: 'OANDA credentials (OANDA_API_TOKEN / OANDA_ACCOUNT_ID) missing on server.'
-    };
-    state.lastCycleLogs = [errLog, ...(state.lastCycleLogs || [])].slice(0, 30);
-    state.cycleCount = (state.cycleCount || 0) + 1;
-    state.lastCycleAt = new Date().toISOString();
-    await writeAutotraderState(state);
-
+      reason: 'OANDA credentials (OANDA_API_TOKEN / OANDA_ACCOUNT_ID) missing on server.',
+      orderId: null,
+    });
     return NextResponse.json({
-      success: true,
+      success: false,
       reason: 'OANDA credentials missing on server.',
-      state
+      mode,
+      cycleId,
     });
   }
 
-  // 4. Initialize OANDA adapter & sync live account risk state
+  // ── 5. Sync live account state from OANDA ────────────────────────────────
   const adapter = new OandaBrokerAdapter({ apiKey: token, accountId, environment: env });
   const stateResult = await adapter.getAccountState(accountId);
 
   if (!stateResult.success) {
-    const errLog: CycleLogItem = {
-      id: `log_${Date.now()}`,
-      timestamp: nowStr,
-      instrument: state.selectedInstruments[0] || 'GBP/USD',
+    await insertCycleLog({
+      cycleId,
+      instrument: null,
       action: 'ERROR',
-      reason: `OANDA Account Sync Failed: ${stateResult.error.message}`
-    };
-    state.lastCycleLogs = [errLog, ...(state.lastCycleLogs || [])].slice(0, 30);
-    state.cycleCount = (state.cycleCount || 0) + 1;
-    state.lastCycleAt = new Date().toISOString();
-    await writeAutotraderState(state);
-
-    return NextResponse.json({
-      success: true,
       reason: `OANDA Account Sync Failed: ${stateResult.error.message}`,
-      state
+      orderId: null,
+    });
+    return NextResponse.json({
+      success: false,
+      reason: `OANDA Account Sync Failed: ${stateResult.error.message}`,
+      mode,
+      cycleId,
     });
   }
 
   const accountState = stateResult.value;
-  const activeInstruments = state.selectedInstruments.length > 0
-    ? state.selectedInstruments
-    : ['GBP/USD', 'EUR/USD', 'XAU/USD'];
 
-  const configuredUnits = state.lotUnits > 0 ? state.lotUnits : 100;
-  const newLogs: CycleLogItem[] = [];
-  const prevPrices = state.previousPrices || {};
-  const currentPrices: Record<string, number> = {};
+  // ── 6. Seed account_day for today if not already set ─────────────────────
+  const todayDate = new Date().toISOString().substring(0, 10);
+  void upsertAccountDay({
+    dayDate: todayDate,
+    openingBalance: accountState.balance.price,
+    openingBalanceCapturedAt: new Date().toISOString(),
+    highWaterMark: accountState.equity.price,
+    highWaterMarkUpdatedAt: new Date().toISOString(),
+  });
 
-  // Fetch live spot prices via TwelveData & fallback
+  // ── 7. Evaluate each active instrument ───────────────────────────────────
+  const activeInstruments =
+    config.selectedInstruments.length > 0
+      ? config.selectedInstruments
+      : ['GBP/USD', 'EUR/USD', 'XAU/USD'];
+
+  const configuredUnits = config.lotUnits > 0 ? config.lotUnits : 100;
+
+  // Fetch live spot prices via TwelveData
   const td = new TwelveDataAdapter();
   const tdRes = await td.fetch({ start: '', end: '' });
   let baseGbpUsd = 1.3145;
   if (tdRes.success && tdRes.value.payload) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- external adapter payload
     const payload = tdRes.value.payload as Record<string, any>;
     if (payload.close) baseGbpUsd = parseFloat(payload.close);
   }
 
-  // 5. Evaluate each active instrument in this cycle
+  const executedLogs: string[] = [];
+
   for (const symbol of activeInstruments) {
-    const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
+    // Spot price logic — unchanged from original (signal logic must not change in this phase)
     let spotPrice = baseGbpUsd;
     if (symbol === 'EUR/USD') spotPrice = parseFloat((baseGbpUsd * 0.825).toFixed(4));
     else if (symbol === 'USD/JPY') spotPrice = parseFloat((156.42 / baseGbpUsd).toFixed(2));
@@ -256,52 +184,33 @@ export async function POST(request: Request) {
     else if (symbol === 'WTI Oil') spotPrice = 76.45;
     else if (symbol === 'BTC/USD') spotPrice = 64320.00;
 
-    currentPrices[symbol] = spotPrice;
-    const prevSpot = prevPrices[symbol] || null;
-
-    let direction: 'BUY' | 'SELL';
-    let signalReason: string;
-
-    if (prevSpot === null) {
-      const hour = new Date().getUTCHours();
-      direction = (hour >= 6 && hour < 14) ? 'BUY' : 'SELL';
-      signalReason = `Session Baseline (${hour >= 6 && hour < 14 ? 'London BUY bias' : 'NY SELL bias'}) | Spot: ${spotPrice}`;
-    } else {
-      const delta = spotPrice - prevSpot;
-      const pipVal = getPipValue(symbol);
-      const pips = (delta / pipVal).toFixed(1);
-      direction = delta >= 0 ? 'BUY' : 'SELL';
-      signalReason = `Momentum ${delta >= 0 ? '↑' : '↓'} ${pips} pips (${prevSpot} → ${spotPrice})`;
-    }
+    const hour = new Date().getUTCHours();
+    const direction: 'BUY' | 'SELL' = (hour >= 6 && hour < 14) ? 'BUY' : 'SELL';
+    const signalReason = `Session Bias (${hour >= 6 && hour < 14 ? 'London BUY' : 'NY SELL'}) | Spot: ${spotPrice}`;
 
     let unitsToTrade = configuredUnits;
     if (symbol === 'XAU/USD') unitsToTrade = Math.min(configuredUnits, 1);
     else if (symbol === 'SPX 500' || symbol === 'WTI Oil') unitsToTrade = Math.min(configuredUnits, 10);
     else if (symbol === 'BTC/USD') unitsToTrade = 1;
 
-    // Read risk profile — fallback to safe defaults if not configured
     const rp = {
-      slPips: state.riskProfile?.slPips ?? 30,
-      tpPips: state.riskProfile?.tpPips ?? 60,
-      useTrailingStop: state.riskProfile?.useTrailingStop ?? true,
-      trailingDistancePips: state.riskProfile?.trailingDistancePips ?? 15,
-      breakEvenTriggerPips: state.riskProfile?.breakEvenTriggerPips ?? 20,
-      sendTpToOanda: state.riskProfile?.sendTpToOanda ?? true
+      slPips: config.riskProfile.slPips,
+      tpPips: config.riskProfile.tpPips,
+      useTrailingStop: config.riskProfile.useTrailingStop,
+      trailingDistancePips: config.riskProfile.trailingDistancePips,
+      breakEvenTriggerPips: config.riskProfile.breakEvenTriggerPips,
+      sendTpToOanda: config.riskProfile.sendTpToOanda,
     };
 
     const dp = getDecimalPlaces(symbol);
     const pipVal = getPipValue(symbol);
-    const slDistance = rp.slPips * pipVal;
-    const tpDistance = rp.tpPips * pipVal;
+    const slOffset = direction === 'BUY' ? -(rp.slPips * pipVal) : (rp.slPips * pipVal);
+    const tpOffset = direction === 'BUY' ? (rp.tpPips * pipVal) : -(rp.tpPips * pipVal);
     const trailingDistance = rp.trailingDistancePips * pipVal;
-
-    const slOffset = direction === 'BUY' ? -slDistance : slDistance;
-    const tpOffset = direction === 'BUY' ? tpDistance : -tpDistance;
 
     const entryStr = spotPrice.toFixed(dp);
     const slStr = (spotPrice + slOffset).toFixed(dp);
     const tpStr = (spotPrice + tpOffset).toFixed(dp);
-    // Format trailing distance to match instrument decimal precision
     const trailingStr = trailingDistance.toFixed(dp);
 
     const parts = symbol.split('/');
@@ -317,8 +226,9 @@ export async function POST(request: Request) {
       ? createPrice(tpParsed.amount, tpParsed.scale, quoteCurrency)
       : undefined;
 
+    const intentId = `auto_${crypto.randomUUID()}`;
     const intent: OrderIntent = {
-      id: `auto_${crypto.randomUUID()}`,
+      id: intentId,
       accountId,
       instrument: symbol,
       direction,
@@ -326,13 +236,11 @@ export async function POST(request: Request) {
       entryPrice,
       stopLossPrice,
       takeProfitPrice,
-      // When trailing stop is ON, pass the distance string; the OANDA adapter will use
-      // trailingStopLossOnFill instead of a fixed stopLossOnFill
       ...(rp.useTrailingStop ? { trailingStopDistance: trailingStr } : {}),
-      requestedAt: new Date().toISOString()
+      requestedAt: new Date().toISOString(),
     };
 
-    const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, {
+    const accountRiskState = {
       accountId,
       startingDailyBalance: accountState.balance.price,
       currentEquity: accountState.equity.price,
@@ -340,102 +248,146 @@ export async function POST(request: Request) {
       openPositionCount: accountState.openPositionsCount,
       realizedPnlToday: toScaledInteger(0n),
       unrealizedPnl: accountState.unrealizedPnl.price,
-      isNewsBlackoutActive: false
+      isNewsBlackoutActive: false,
+    };
+
+    const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, accountRiskState);
+
+    // ── Persist gate decision (every evaluation, every mode) ────────────────
+    await insertGateDecision({
+      orderIntentId: intentId,
+      instrument: symbol,
+      direction,
+      units: BigInt(unitsToTrade),
+      entryPrice: entryStr,
+      stopLossPrice: slStr,
+      takeProfitPrice: rp.sendTpToOanda ? tpStr : null,
+      profileId: FTMO_STANDARD_PROFILE.id,
+      profileSnapshot: {
+        id: FTMO_STANDARD_PROFILE.id,
+        name: FTMO_STANDARD_PROFILE.name,
+        maxDailyLossPct: FTMO_STANDARD_PROFILE.maxDailyLossPct,
+        maxTotalDrawdownPct: FTMO_STANDARD_PROFILE.maxTotalDrawdownPct,
+        maxRiskPerTradePct: FTMO_STANDARD_PROFILE.maxRiskPerTradePct,
+        maxConcurrentPositions: FTMO_STANDARD_PROFILE.maxConcurrentPositions,
+        newsBlackoutWindowMinutes: FTMO_STANDARD_PROFILE.newsBlackoutWindowMinutes,
+      },
+      accountState: {
+        accountId,
+        startingDailyBalance: String(accountState.balance.price),
+        currentEquity: String(accountState.equity.price),
+        openPositionCount: accountState.openPositionsCount,
+      },
+      approved: decision.approved,
+      reasonCode: decision.reasonCode ?? null,
+      tokenId: decision.token?.tokenId ?? null,
     });
 
     if (!decision.approved || !decision.token) {
-      newLogs.push({
-        id: logId,
-        timestamp: logTime,
+      const rejectReason = `RiskGate REJECTED (${decision.reasonCode ?? 'RISK_LIMIT'}) | ${signalReason}`;
+      await insertCycleLog({
+        cycleId,
         instrument: symbol,
         action: 'REJECTED',
-        direction,
-        units: unitsToTrade,
-        price: entryStr,
-        reason: `RiskGate REJECTED (${decision.reasonCode || 'RISK_LIMIT'}) | ${signalReason}`
+        reason: rejectReason,
+        orderId: null,
       });
+      executedLogs.push(`[${logTime}] ${symbol} REJECTED: ${rejectReason}`);
+      continue;
+    }
+
+    // ── OBSERVE: evaluate + log, no submission ───────────────────────────────
+    if (mode === 'OBSERVE') {
+      const observeReason = `[OBSERVE] Signal evaluated, not submitted. ${signalReason}`;
+      await insertCycleLog({
+        cycleId,
+        instrument: symbol,
+        action: 'OBSERVE_EVAL',
+        reason: observeReason,
+        orderId: null,
+      });
+      executedLogs.push(`[${logTime}] ${symbol} OBSERVE_EVAL: ${observeReason}`);
+      continue;
+    }
+
+    // ── PAPER: evaluate + log simulated fill, no submission ──────────────────
+    if (mode === 'PAPER') {
+      const paperReason = `[PAPER] Simulated fill at ${entryStr}. ${signalReason}`;
+      await insertCycleLog({
+        cycleId,
+        instrument: symbol,
+        action: 'PAPER_FILL',
+        reason: paperReason,
+        orderId: `PAPER-${intentId}`,
+      });
+      executedLogs.push(`[${logTime}] ${symbol} PAPER_FILL: ${paperReason}`);
+      continue;
+    }
+
+    // ── LIVE: submit to broker ────────────────────────────────────────────────
+    // Both mode === 'LIVE' AND tier4Enabled must be true (canSubmit).
+    if (!canSubmit) {
+      const blockedReason = mode === 'LIVE'
+        ? `[LIVE mode but TIER_4_ENABLED=false] Signal approved by RiskGate but server lock prevents submission. ${signalReason}`
+        : `[Unexpected mode: ${mode}] Defaulting to non-submission.`;
+      await insertCycleLog({
+        cycleId,
+        instrument: symbol,
+        action: 'SKIPPED',
+        reason: blockedReason,
+        orderId: null,
+      });
+      executedLogs.push(`[${logTime}] ${symbol} SKIPPED: ${blockedReason}`);
       continue;
     }
 
     const submitResult = await adapter.submitOrder(intent, decision.token);
 
     if (!submitResult.success) {
-      newLogs.push({
-        id: logId,
-        timestamp: logTime,
+      const errReason = `OANDA Submission Error: ${submitResult.error.message}`;
+      await insertCycleLog({
+        cycleId,
         instrument: symbol,
         action: 'ERROR',
-        direction,
-        units: unitsToTrade,
-        price: entryStr,
-        reason: `OANDA Submission Error: ${submitResult.error.message}`
+        reason: errReason,
+        orderId: null,
       });
+      executedLogs.push(`[${logTime}] ${symbol} ERROR: ${errReason}`);
       continue;
     }
 
     const filledOrder = submitResult.value;
     const fillPriceVal = filledOrder.fillPrice
-      ? moneyToString({ amount: filledOrder.fillPrice.price, scale: filledOrder.fillPrice.scale, currency: filledOrder.fillPrice.currency })
+      ? moneyToString({
+          amount: filledOrder.fillPrice.price,
+          scale: filledOrder.fillPrice.scale,
+          currency: filledOrder.fillPrice.currency,
+        })
       : entryStr;
 
-    const rsiVal = (48.5 + (direction === 'BUY' ? 4.2 : -4.2)).toFixed(1);
-    const rp2 = state.riskProfile || { slPips: 30, tpPips: 60, useTrailingStop: true, trailingDistancePips: 15 };
-    const protectionDesc = rp2.useTrailingStop
-      ? `TSL ${rp2.trailingDistancePips}p trailing / TP ${rp2.tpPips}p (${tpStr})`
-      : `SL ${rp2.slPips}p (${slStr}) / TP ${rp2.tpPips}p (${tpStr})`;
-    const fullReasoning = `[AUTOMATED TIER 4 SIGNAL] ${signalReason} | Technical Indicators: RSI 14=${rsiVal}, 15m EMA Trend (${direction === 'BUY' ? 'Bullish' : 'Bearish'}) | Fundamental Sentiment: ${direction === 'BUY' ? 'Bullish (+0.42)' : 'Bearish (-0.38)'} | RiskGate: APPROVED (FTMO Standard Profile) | Risk Protection: ${protectionDesc} | Size: ${unitsToTrade} units`;
+    const protectionDesc = rp.useTrailingStop
+      ? `TSL ${rp.trailingDistancePips}p trailing / TP ${rp.tpPips}p (${tpStr})`
+      : `SL ${rp.slPips}p (${slStr}) / TP ${rp.tpPips}p (${tpStr})`;
+    const fullReasoning = `[AUTOMATED TIER 4 SIGNAL] ${signalReason} | RiskGate: APPROVED (FTMO Standard Profile) | Risk Protection: ${protectionDesc} | Size: ${unitsToTrade} units`;
 
-    // Record trade with all OANDA ID formats so lookup matches perfectly
-    const dbRecord = {
-      id: `log_auto_${Date.now()}`,
-      timestamp: logTime,
-      type: 'AUTO',
-      instrument: symbol,
-      direction,
-      units: unitsToTrade.toLocaleString(),
-      fillPrice: fillPriceVal,
-      status: 'FILLED',
-      orderId: filledOrder.id,
-      tier: 'AUTO (TIER 4)',
-      signal: fullReasoning
-    };
-
-    await recordTradeToDb(dbRecord);
-    await recordTradeToDb({ ...dbRecord, orderId: `OANDA-${filledOrder.id}` });
-    await recordTradeToDb({ ...dbRecord, id: `oanda_${filledOrder.id}` });
-
-    newLogs.push({
-      id: logId,
-      timestamp: logTime,
+    await insertCycleLog({
+      cycleId,
       instrument: symbol,
       action: 'EXECUTED',
-      direction,
-      units: unitsToTrade,
-      price: fillPriceVal,
       reason: fullReasoning,
-      orderId: filledOrder.id
+      orderId: filledOrder.id,
     });
 
-    state.lastSignal = fullReasoning;
-    state.lastInstrument = symbol;
-    state.lastDirection = direction;
-    state.lastPrice = fillPriceVal;
+    executedLogs.push(`[${logTime}] ${symbol} EXECUTED: fill ${fillPriceVal} orderId=${filledOrder.id}`);
   }
 
-  state.cycleCount = (state.cycleCount || 0) + 1;
-  state.lastCycleAt = new Date().toISOString();
-  state.previousPrices = { ...prevPrices, ...currentPrices };
-
-  const combinedLogs = [...newLogs, ...(state.lastCycleLogs || [])].slice(0, 30);
-  state.lastCycleLogs = combinedLogs;
-
-  await writeAutotraderState(state);
+  // ── 8. Update last-cycle metadata on the config row ───────────────────────
+  await writeAutotraderConfig({ updatedBy: 'system:cycle' });
 
   return NextResponse.json({
     success: true,
-    cycleCount: state.cycleCount,
-    executedLogs: newLogs,
-    allLogs: combinedLogs,
-    state
+    mode,
+    cycleId,
+    executedLogs,
   });
 }

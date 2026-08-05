@@ -406,15 +406,10 @@ function TradePageInner() {
 
   const fetchAutotraderState = useCallback(async () => {
     try {
-      const savedLocal = typeof window !== 'undefined' ? localStorage.getItem('meridian_autotrader_enabled') : null;
       const res = await fetch('/api/autotrader');
       if (!res.ok) return;
       const data = await res.json();
       if (data.success) {
-        // If localStorage has explicit user preference, ensure it is honored
-        if (savedLocal !== null) {
-          data.enabled = savedLocal === 'true';
-        }
         // Merge stored auto list if available
         const storedList = getStoredAutoList();
         if (storedList && storedList.length > 0) {
@@ -446,22 +441,14 @@ function TradePageInner() {
     try {
       const res = await fetch('/api/autotrader/run-cycle', { method: 'POST' });
       const data = await res.json();
-      if (data.state) {
-        setAutotrader(prev => {
-          if (!prev) return data.state;
-          const currentEnabled = typeof window !== 'undefined'
-            ? localStorage.getItem('meridian_autotrader_enabled') === 'true'
-            : prev.enabled;
-          return {
-            ...data.state,
-            enabled: currentEnabled
-          };
-        });
+      if (data.mode) {
+        // Refresh full server state after each cycle so mode display stays accurate.
+        fetchAutotraderState();
       }
       fetchOandaData();
     } catch {}
     setRunningCycle(false);
-  }, [fetchOandaData]);
+  }, [fetchOandaData, fetchAutotraderState]);
 
   useEffect(() => {
     fetchPrices();
@@ -498,25 +485,25 @@ function TradePageInner() {
   const handleToggleAutotrader = useCallback(async () => {
     if (!autotrader || autoToggling) return;
     setAutoToggling(true);
-    const nextState = !autotrader.enabled;
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('meridian_autotrader_enabled', nextState ? 'true' : 'false');
-    }
-
-    // Optimistically set state so UI card immediately reflects state change
-    setAutotrader(prev => prev ? { ...prev, enabled: nextState } : prev);
+    // Determine the target mode: if currently OBSERVE or no mode, go to PAPER;
+    // if PAPER or LIVE, return to OBSERVE. OBSERVE→LIVE is never allowed.
+    const currentMode = autotrader.mode ?? 'OBSERVE';
+    const toMode = (currentMode === 'OBSERVE') ? 'PAPER' : 'OBSERVE';
+    const fromMode = currentMode as string;
 
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: nextState }),
+        body: JSON.stringify({
+          requestTransition: { from: fromMode, to: toMode, reason: 'User toggled via Trading Desk UI' }
+        }),
       });
       const data = await res.json();
       if (data.success) {
-        setAutotrader(prev => ({ ...data, enabled: nextState }));
-        if (nextState) {
+        setAutotrader(data);
+        if (toMode !== 'OBSERVE') {
           runAutonomousCycle();
         }
       }
@@ -561,27 +548,17 @@ function TradePageInner() {
 
   const handleSetSchedule = useCallback(async (isoTime: string, label: string) => {
     setSavingSchedule(true);
-    const isCurrentlyEnabled = autotrader?.enabled ?? (typeof window !== 'undefined' ? localStorage.getItem('meridian_autotrader_enabled') === 'true' : true);
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: isCurrentlyEnabled,
-          autoStopAt: isoTime,
-          autoStopLabel: label
-        }),
+        body: JSON.stringify({ autoStopAt: isoTime, autoStopLabel: label }),
       });
       const data = await res.json();
-      if (data.success) {
-        setAutotrader(prev => ({
-          ...data,
-          enabled: isCurrentlyEnabled
-        }));
-      }
+      if (data.success) setAutotrader(data);
     } catch {}
     setSavingSchedule(false);
-  }, [autotrader?.enabled]);
+  }, []);
 
   const handleCloseTrade = useCallback(async (tradeId: string, instrument: string) => {
     setClosingTradeId(tradeId);
@@ -607,27 +584,17 @@ function TradePageInner() {
 
   const handleClearSchedule = useCallback(async () => {
     setSavingSchedule(true);
-    const isCurrentlyEnabled = autotrader?.enabled ?? (typeof window !== 'undefined' ? localStorage.getItem('meridian_autotrader_enabled') === 'true' : true);
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: isCurrentlyEnabled,
-          autoStopAt: null,
-          autoStopLabel: null
-        }),
+        body: JSON.stringify({ autoStopAt: null, autoStopLabel: null }),
       });
       const data = await res.json();
-      if (data.success) {
-        setAutotrader(prev => ({
-          ...data,
-          enabled: isCurrentlyEnabled
-        }));
-      }
+      if (data.success) setAutotrader(data);
     } catch {}
     setSavingSchedule(false);
-  }, [autotrader?.enabled]);
+  }, []);
 
   const handleExecuteManual = useCallback(async () => {
     setExecuting(true); setExecMsg(null);
