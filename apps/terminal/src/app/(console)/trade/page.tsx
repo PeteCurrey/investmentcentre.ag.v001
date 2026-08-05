@@ -207,7 +207,14 @@ export default function TradePage() {
       const res = await fetch('/api/autotrader/run-cycle', { method: 'POST' });
       const data = await res.json();
       if (data.state) {
-        setAutotrader(data.state);
+        setAutotrader(prev => {
+          if (!prev) return data.state;
+          // Maintain enabled status unless explicitly auto-stopped by schedule
+          return {
+            ...data.state,
+            enabled: data.state.enabled !== undefined ? data.state.enabled : prev.enabled
+          };
+        });
       }
       fetchOandaData();
     } catch {}
@@ -250,6 +257,10 @@ export default function TradePage() {
     if (!autotrader || autoToggling) return;
     setAutoToggling(true);
     const nextState = !autotrader.enabled;
+
+    // Optimistically set state so UI card immediately reflects state change
+    setAutotrader(prev => prev ? { ...prev, enabled: nextState } : prev);
+
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',

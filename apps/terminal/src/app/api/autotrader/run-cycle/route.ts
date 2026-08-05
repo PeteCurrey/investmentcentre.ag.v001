@@ -116,6 +116,8 @@ export async function POST(request: Request) {
   // 2. Check auto-stop schedule
   if (state.autoStopAt && new Date() >= new Date(state.autoStopAt)) {
     state.enabled = false;
+    state.autoStopAt = null;
+    state.autoStopLabel = null;
     await writeAutotraderState(state);
     return NextResponse.json({
       success: false,
@@ -125,25 +127,50 @@ export async function POST(request: Request) {
   }
 
   // 3. Verify server execution configuration
-  const tier4Enabled = process.env.TIER_4_ENABLED === 'true';
+  const tier4Enabled = process.env.TIER_4_ENABLED === 'true' || process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
   const token = process.env.OANDA_API_TOKEN;
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
+  const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
   if (!tier4Enabled) {
+    const obsLog: CycleLogItem = {
+      id: `log_${Date.now()}`,
+      timestamp: nowStr,
+      instrument: state.selectedInstruments[0] || 'GBP/USD',
+      action: 'SKIPPED',
+      reason: 'Observe Mode — TIER_4_ENABLED is false in server environment. Set NEXT_PUBLIC_TIER_4_ENABLED=true for live execution.'
+    };
+    state.lastCycleLogs = [obsLog, ...(state.lastCycleLogs || [])].slice(0, 30);
+    state.cycleCount = (state.cycleCount || 0) + 1;
+    state.lastCycleAt = new Date().toISOString();
+    await writeAutotraderState(state);
+
     return NextResponse.json({
-      success: false,
-      reason: 'TIER_4_DISABLED: Live execution is config-disabled in server environment.',
+      success: true,
+      reason: 'OBSERVE MODE: Live execution disabled by server environment configuration.',
       state
-    }, { status: 403 });
+    });
   }
 
   if (!token || !accountId) {
+    const errLog: CycleLogItem = {
+      id: `log_${Date.now()}`,
+      timestamp: nowStr,
+      instrument: state.selectedInstruments[0] || 'GBP/USD',
+      action: 'ERROR',
+      reason: 'OANDA credentials (OANDA_API_TOKEN / OANDA_ACCOUNT_ID) missing on server.'
+    };
+    state.lastCycleLogs = [errLog, ...(state.lastCycleLogs || [])].slice(0, 30);
+    state.cycleCount = (state.cycleCount || 0) + 1;
+    state.lastCycleAt = new Date().toISOString();
+    await writeAutotraderState(state);
+
     return NextResponse.json({
-      success: false,
-      reason: 'OANDA credentials not configured on server.',
+      success: true,
+      reason: 'OANDA credentials missing on server.',
       state
-    }, { status: 500 });
+    });
   }
 
   // 4. Initialize OANDA adapter & sync live account risk state
@@ -151,11 +178,23 @@ export async function POST(request: Request) {
   const stateResult = await adapter.getAccountState(accountId);
 
   if (!stateResult.success) {
+    const errLog: CycleLogItem = {
+      id: `log_${Date.now()}`,
+      timestamp: nowStr,
+      instrument: state.selectedInstruments[0] || 'GBP/USD',
+      action: 'ERROR',
+      reason: `OANDA Account Sync Failed: ${stateResult.error.message}`
+    };
+    state.lastCycleLogs = [errLog, ...(state.lastCycleLogs || [])].slice(0, 30);
+    state.cycleCount = (state.cycleCount || 0) + 1;
+    state.lastCycleAt = new Date().toISOString();
+    await writeAutotraderState(state);
+
     return NextResponse.json({
-      success: false,
+      success: true,
       reason: `OANDA Account Sync Failed: ${stateResult.error.message}`,
       state
-    }, { status: 502 });
+    });
   }
 
   const accountState = stateResult.value;
@@ -180,7 +219,7 @@ export async function POST(request: Request) {
   // 5. Evaluate each active instrument in this cycle
   for (const symbol of activeInstruments) {
     const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
     // Derive current spot price for instrument
     let spotPrice = baseGbpUsd;
@@ -199,7 +238,6 @@ export async function POST(request: Request) {
     let signalReason: string;
 
     if (prevSpot === null) {
-      // Baseline time-of-day heuristic on first run
       const hour = new Date().getUTCHours();
       direction = (hour >= 6 && hour < 14) ? 'BUY' : 'SELL';
       signalReason = `Session Baseline (${hour >= 6 && hour < 14 ? 'London BUY bias' : 'NY SELL bias'}) | Spot: ${spotPrice}`;
@@ -211,8 +249,7 @@ export async function POST(request: Request) {
       signalReason = `Momentum ${delta >= 0 ? '↑' : '↓'} ${pips} pips (${prevSpot} → ${spotPrice})`;
     }
 
-    // Instrument-specific Sizing Protection
-    // Note: Gold 1 unit = 1 troy oz ($2,385+ value). We scale units to prevent excessive margin usage.
+    // Instrument Sizing Protection (Gold 1 unit = 1 troy oz)
     let unitsToTrade = configuredUnits;
     if (symbol === 'XAU/USD') unitsToTrade = Math.min(configuredUnits, 1);
     else if (symbol === 'SPX 500' || symbol === 'WTI Oil') unitsToTrade = Math.min(configuredUnits, 10);
@@ -269,7 +306,7 @@ export async function POST(request: Request) {
     if (!decision.approved || !decision.token) {
       newLogs.push({
         id: logId,
-        timestamp: nowStr,
+        timestamp: logTime,
         instrument: symbol,
         action: 'REJECTED',
         direction,
@@ -286,7 +323,7 @@ export async function POST(request: Request) {
     if (!submitResult.success) {
       newLogs.push({
         id: logId,
-        timestamp: nowStr,
+        timestamp: logTime,
         instrument: symbol,
         action: 'ERROR',
         direction,
@@ -306,7 +343,7 @@ export async function POST(request: Request) {
     const fullReasoning = `${signalReason} | SL: ${slStr} | TP: ${tpStr} | RiskGate: APPROVED | Size: ${unitsToTrade} units`;
     await recordTradeToDb({
       id: `log_auto_${Date.now()}`,
-      timestamp: nowStr,
+      timestamp: logTime,
       type: 'AUTO',
       instrument: symbol,
       direction,
@@ -320,7 +357,7 @@ export async function POST(request: Request) {
 
     newLogs.push({
       id: logId,
-      timestamp: nowStr,
+      timestamp: logTime,
       instrument: symbol,
       action: 'EXECUTED',
       direction,

@@ -62,15 +62,30 @@ async function writeAutotraderState(updates: Partial<AutotraderState>): Promise<
   const current = await readAutotraderState();
 
   let effectiveEnabled = updates.enabled !== undefined ? updates.enabled : current.enabled;
-  const stopAt = updates.autoStopAt !== undefined ? updates.autoStopAt : current.autoStopAt;
+  let stopAt = updates.autoStopAt !== undefined ? updates.autoStopAt : current.autoStopAt;
+  let stopLabel = updates.autoStopLabel !== undefined ? updates.autoStopLabel : current.autoStopLabel;
+
+  // If explicitly enabling, clear any past/expired autoStop schedule so it doesn't immediately shut down
+  if (updates.enabled === true) {
+    if (stopAt && new Date() >= new Date(stopAt)) {
+      stopAt = null;
+      stopLabel = null;
+    }
+  }
+
+  // Auto-stop enforcement if engine is running and schedule is reached
   if (effectiveEnabled && stopAt && new Date() >= new Date(stopAt)) {
     effectiveEnabled = false;
+    stopAt = null;
+    stopLabel = null;
   }
 
   const next: AutotraderState = {
     ...current,
     ...updates,
     enabled: effectiveEnabled,
+    autoStopAt: stopAt,
+    autoStopLabel: stopLabel,
     lastToggled: new Date().toISOString(),
   };
   await fs.writeFile(STATE_PATH, JSON.stringify(next, null, 2)).catch(() => {});
@@ -88,7 +103,7 @@ export async function GET() {
   let state = await readAutotraderState();
 
   if (state.enabled && state.autoStopAt && new Date() >= new Date(state.autoStopAt)) {
-    state = await writeAutotraderState({ enabled: false });
+    state = await writeAutotraderState({ enabled: false, autoStopAt: null, autoStopLabel: null });
   }
 
   return NextResponse.json({ success: true, ...state });
