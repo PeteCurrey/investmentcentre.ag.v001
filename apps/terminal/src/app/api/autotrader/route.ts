@@ -60,17 +60,16 @@ async function readAutotraderState(): Promise<AutotraderState> {
 
 async function writeAutotraderState(updates: Partial<AutotraderState>): Promise<AutotraderState> {
   const current = await readAutotraderState();
+  const cookieStore = await cookies();
+  const cookieVal = cookieStore.get('console_autotrader_enabled')?.value;
+  const cookieEnabled = cookieVal === 'true' ? true : (cookieVal === 'false' ? false : undefined);
 
-  let effectiveEnabled = updates.enabled !== undefined ? updates.enabled : current.enabled;
+  let effectiveEnabled = updates.enabled !== undefined
+    ? updates.enabled
+    : (cookieEnabled !== undefined ? cookieEnabled : current.enabled);
+
   let stopAt = updates.autoStopAt !== undefined ? updates.autoStopAt : current.autoStopAt;
   let stopLabel = updates.autoStopLabel !== undefined ? updates.autoStopLabel : current.autoStopLabel;
-
-  if (updates.enabled === true) {
-    if (stopAt && new Date() >= new Date(stopAt)) {
-      stopAt = null;
-      stopLabel = null;
-    }
-  }
 
   if (effectiveEnabled && stopAt && new Date() >= new Date(stopAt)) {
     effectiveEnabled = false;

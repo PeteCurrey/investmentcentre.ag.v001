@@ -421,17 +421,27 @@ function TradePageInner() {
 
   const handleSetSchedule = useCallback(async (isoTime: string, label: string) => {
     setSavingSchedule(true);
+    const isCurrentlyEnabled = autotrader?.enabled ?? (typeof window !== 'undefined' ? localStorage.getItem('meridian_autotrader_enabled') === 'true' : true);
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoStopAt: isoTime, autoStopLabel: label }),
+        body: JSON.stringify({
+          enabled: isCurrentlyEnabled,
+          autoStopAt: isoTime,
+          autoStopLabel: label
+        }),
       });
       const data = await res.json();
-      if (data.success) setAutotrader(data);
+      if (data.success) {
+        setAutotrader(prev => ({
+          ...data,
+          enabled: isCurrentlyEnabled
+        }));
+      }
     } catch {}
     setSavingSchedule(false);
-  }, []);
+  }, [autotrader?.enabled]);
 
   const handleCloseTrade = useCallback(async (tradeId: string, instrument: string) => {
     setClosingTradeId(tradeId);
@@ -457,17 +467,27 @@ function TradePageInner() {
 
   const handleClearSchedule = useCallback(async () => {
     setSavingSchedule(true);
+    const isCurrentlyEnabled = autotrader?.enabled ?? (typeof window !== 'undefined' ? localStorage.getItem('meridian_autotrader_enabled') === 'true' : true);
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoStopAt: null, autoStopLabel: null }),
+        body: JSON.stringify({
+          enabled: isCurrentlyEnabled,
+          autoStopAt: null,
+          autoStopLabel: null
+        }),
       });
       const data = await res.json();
-      if (data.success) setAutotrader(data);
+      if (data.success) {
+        setAutotrader(prev => ({
+          ...data,
+          enabled: isCurrentlyEnabled
+        }));
+      }
     } catch {}
     setSavingSchedule(false);
-  }, []);
+  }, [autotrader?.enabled]);
 
   const handleExecuteManual = useCallback(async () => {
     setExecuting(true); setExecMsg(null);
@@ -824,23 +844,28 @@ function TradePageInner() {
               AUTO-STOP SCHEDULE — engine automatically disables at chosen time
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
-              {SESSION_PRESETS.map(preset => (
-                <button
-                  key={preset.label}
-                  disabled={savingSchedule}
-                  onClick={() => handleSetSchedule(buildStopTime(preset.utcHour, preset.utcMin), `${preset.label} ${preset.description}`)}
-                  style={{
-                    padding: '7px 12px', border: '1px solid',
-                    borderColor: autotrader.autoStopLabel?.startsWith(preset.label) ? '#F59E0B' : '#D1D5DB',
-                    backgroundColor: autotrader.autoStopLabel?.startsWith(preset.label) ? '#FEF3C7' : '#F9FAFB',
-                    color: autotrader.autoStopLabel?.startsWith(preset.label) ? '#92400E' : '#374151',
-                    fontSize: '10px', cursor: 'pointer', ...mono,
-                  }}
-                >
-                  {preset.label}<br />
-                  <span style={{ fontSize: '8px', color: '#6B7280' }}>{preset.description}</span>
-                </button>
-              ))}
+              {SESSION_PRESETS.map(preset => {
+                const isSelected = autotrader.autoStopLabel?.startsWith(preset.label);
+                return (
+                  <button
+                    key={preset.label}
+                    disabled={savingSchedule}
+                    onClick={() => handleSetSchedule(buildStopTime(preset.utcHour, preset.utcMin), `${preset.label} ${preset.description}`)}
+                    style={{
+                      padding: '8px 14px', border: `2px solid ${isSelected ? '#F59E0B' : (autotrader.enabled ? '#334155' : '#D1D5DB')}`,
+                      backgroundColor: isSelected ? '#FEF3C7' : (autotrader.enabled ? '#1E293B' : '#F9FAFB'),
+                      color: isSelected ? '#92400E' : (autotrader.enabled ? '#F8FAFC' : '#374151'),
+                      fontSize: '10px', fontWeight: isSelected ? 800 : 700, cursor: 'pointer', ...mono,
+                      borderRadius: '3px',
+                      boxShadow: isSelected ? '0 0 10px rgba(245, 158, 11, 0.4)' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {isSelected ? '✓ ' : ''}{preset.label}<br />
+                    <span style={{ fontSize: '8px', color: isSelected ? '#B45309' : '#64748B' }}>{preset.description}</span>
+                  </button>
+                );
+              })}
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <input
