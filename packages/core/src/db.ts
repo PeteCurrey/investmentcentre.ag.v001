@@ -1,12 +1,18 @@
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-let supabaseInstance: SupabaseClient | null = null;
-let supabaseServiceInstance: SupabaseClient | null = null;
+// Use the widest generic so both "public" and "meridian" schema clients satisfy the type.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabaseClient = SupabaseClient<any, any, any>;
+
+let supabaseInstance: AnySupabaseClient | null = null;
+let supabaseServiceInstance: AnySupabaseClient | null = null;
 
 function resolveSupabaseUrl(): string | undefined {
   const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   if (!rawUrl) return undefined;
   if (rawUrl.startsWith('https://') || rawUrl.startsWith('http://')) return rawUrl;
+  // Convert PostgreSQL connection string to the Supabase REST URL
   if (rawUrl.startsWith('postgresql://') || rawUrl.startsWith('postgres://')) {
     const match = rawUrl.match(/db\.([a-z0-9]+)\.supabase\.co/);
     if (match && match[1]) {
@@ -16,13 +22,14 @@ function resolveSupabaseUrl(): string | undefined {
   return rawUrl;
 }
 
-export function getSupabaseClient(): SupabaseClient {
+export function getSupabaseClient(): AnySupabaseClient {
   if (supabaseInstance) {
     return supabaseInstance;
   }
 
   const supabaseUrl = resolveSupabaseUrl();
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseAnonKey =
+    process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error(
@@ -42,7 +49,7 @@ export function getSupabaseClient(): SupabaseClient {
  * Required for writes to gate_decisions and mode_transitions which have application-role
  * UPDATE/DELETE revoked.
  */
-export function getSupabaseServiceClient(): SupabaseClient {
+export function getSupabaseServiceClient(): AnySupabaseClient {
   if (supabaseServiceInstance) {
     return supabaseServiceInstance;
   }
