@@ -1,7 +1,7 @@
-export * from './types.ts';
-export * from './money.ts';
-export * from './logger.ts';
-export { getSupabaseClient, getSupabaseServiceClient } from './db.ts';
-export * from './state.ts';
-export * from './mode.ts';
-export * from './lock.ts';
+export * from './types';
+export * from './money';
+export * from './logger';
+export { getSupabaseClient, getSupabaseServiceClient } from './db';
+export * from './state';
+export * from './mode';
+export * from './lock';
