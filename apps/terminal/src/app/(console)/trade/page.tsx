@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import TradingViewChart from '../../../components/TradingViewChart';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
@@ -176,6 +176,69 @@ export default function TradePage() {
   // Close trade
   const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
   const [closeMsg, setCloseMsg]             = useState<{ id: string; ok: boolean; text: string } | null>(null);
+
+  // Closed Trades P&L Analytics timeframe & state
+  const [pnlTimeframe, setPnlTimeframe]     = useState<'1h' | '3h' | '6h' | '24h' | 'ALL' | 'CUSTOM'>('24h');
+  const [customPnlHours, setCustomPnlHours] = useState<string>('12');
+
+  const closedTradesStats = useMemo(() => {
+    const now = Date.now();
+    let cutoffMs = 0;
+    if (pnlTimeframe === '1h') cutoffMs = 1 * 60 * 60 * 1000;
+    else if (pnlTimeframe === '3h') cutoffMs = 3 * 60 * 60 * 1000;
+    else if (pnlTimeframe === '6h') cutoffMs = 6 * 60 * 60 * 1000;
+    else if (pnlTimeframe === '24h') cutoffMs = 24 * 60 * 60 * 1000;
+    else if (pnlTimeframe === 'CUSTOM') {
+      const h = parseFloat(customPnlHours) || 1;
+      cutoffMs = h * 60 * 60 * 1000;
+    }
+
+    const closedEntries = execLog.filter(e => {
+      if (e.status !== 'CLOSED' && !e.closedAt && !e.closePrice) return false;
+      if (pnlTimeframe === 'ALL') return true;
+      const timeStr = e.closedAt || e.timestamp;
+      if (!timeStr || timeStr === '—') return false;
+      const tradeTime = new Date(timeStr.includes('T') ? timeStr : timeStr.replace(' ', 'T')).getTime();
+      if (isNaN(tradeTime)) return true;
+      return (now - tradeTime) <= cutoffMs;
+    });
+
+    let totalNet = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+    let winCount = 0;
+    let lossCount = 0;
+
+    closedEntries.forEach(e => {
+      const rawVal = parseFloat(e.pnl || '0');
+      const sign = e.pnlSign === '-' ? -1 : 1;
+      const pnlVal = e.pnlPositive !== undefined ? (e.pnlPositive ? Math.abs(rawVal) : -Math.abs(rawVal)) : sign * Math.abs(rawVal);
+
+      totalNet += pnlVal;
+      if (pnlVal > 0) {
+        grossProfit += pnlVal;
+        winCount++;
+      } else if (pnlVal < 0) {
+        grossLoss += Math.abs(pnlVal);
+        lossCount++;
+      }
+    });
+
+    const totalClosed = closedEntries.length;
+    const winRate = (winCount + lossCount) > 0 ? (winCount / (winCount + lossCount)) * 100 : 0;
+    const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss) : (grossProfit > 0 ? 99.9 : 0);
+
+    return {
+      totalClosed,
+      totalNet,
+      grossProfit,
+      grossLoss,
+      winCount,
+      lossCount,
+      winRate,
+      profitFactor
+    };
+  }, [execLog, pnlTimeframe, customPnlHours]);
 
   const inst = instruments.find(i => i.symbol === selectedSymbol) || instruments[0];
   const tier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
@@ -991,6 +1054,112 @@ export default function TradePage() {
                 Configure trade parameters then click<br />RUN ANALYSIS for AI co-pilot evaluation.
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Closed Trades P&L Performance Analytics ── */}
+      <div style={{ border: '1px solid #1C3A5E', backgroundColor: '#FFFFFF', padding: '16px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid #E2E8F0', paddingBottom: '12px', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: '#1C3A5E', letterSpacing: '0.8px' }}>
+              CLOSED TRADES P&L PERFORMANCE
+            </span>
+            <span style={{ fontSize: '9px', padding: '2px 7px', backgroundColor: '#F1F5F9', color: '#475569', fontWeight: 700, border: '1px solid #CBD5E1' }}>
+              {closedTradesStats.totalClosed} CLOSED TRADE{closedTradesStats.totalClosed !== 1 ? 'S' : ''} IN TIMEFRAME
+            </span>
+          </div>
+
+          {/* Timeframe Selector Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px' }}>
+            <span style={{ color: '#64748B', fontWeight: 600 }}>TIMEFRAME:</span>
+            {(['1h', '3h', '6h', '24h', 'ALL', 'CUSTOM'] as const).map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setPnlTimeframe(tf)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  backgroundColor: pnlTimeframe === tf ? '#1C3A5E' : '#F8FAFC',
+                  color: pnlTimeframe === tf ? '#C8F135' : '#475569',
+                  border: `1px solid ${pnlTimeframe === tf ? '#1C3A5E' : '#CBD5E1'}`,
+                  ...mono
+                }}
+              >
+                {tf === '1h' ? 'Last 1h' : tf === '3h' ? 'Last 3h' : tf === '6h' ? 'Last 6h' : tf === '24h' ? 'Last 24h' : tf === 'ALL' ? 'All Time' : 'Custom'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom Timeframe Hours Selector */}
+        {pnlTimeframe === 'CUSTOM' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#F8FAFC', padding: '10px 14px', border: '1px solid #E2E8F0', marginBottom: '14px', fontSize: '11px' }}>
+            <span style={{ fontWeight: 600, color: '#1E293B' }}>Custom Window (Past Hours):</span>
+            <input
+              type="number"
+              min="1"
+              max="720"
+              value={customPnlHours}
+              onChange={(e) => setCustomPnlHours(e.target.value)}
+              style={{ width: '80px', padding: '4px 8px', border: '1px solid #CBD5E1', fontSize: '11px', fontWeight: 700, ...mono }}
+            />
+            <span style={{ color: '#64748B', fontSize: '10px' }}>hours (e.g. 12 = last 12h, 48 = last 2 days)</span>
+          </div>
+        )}
+
+        {/* Metrics Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px' }}>
+          {/* Total Net P&L */}
+          <div style={{ padding: '14px', backgroundColor: closedTradesStats.totalNet >= 0 ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${closedTradesStats.totalNet >= 0 ? '#86EFAC' : '#FCA5A5'}` }}>
+            <div style={{ fontSize: '9px', fontWeight: 700, color: '#64748B', letterSpacing: '0.5px', marginBottom: '4px' }}>TOTAL NET P&L</div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: closedTradesStats.totalNet >= 0 ? '#15803D' : '#DC2626', ...mono }}>
+              {closedTradesStats.totalNet >= 0 ? '+' : ''}${closedTradesStats.totalNet.toFixed(2)}
+            </div>
+            <div style={{ fontSize: '9px', color: '#64748B', marginTop: '4px' }}>
+              Realized net outcome in selected timeframe
+            </div>
+          </div>
+
+          {/* Standalone Profit */}
+          <div style={{ padding: '14px', backgroundColor: '#F0FDF4', border: '1px solid #86EFAC' }}>
+            <div style={{ fontSize: '9px', fontWeight: 700, color: '#166534', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              ▲ STANDALONE PROFIT (PROFITABLE TRADES)
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: '#16A34A', ...mono }}>
+              +${closedTradesStats.grossProfit.toFixed(2)}
+            </div>
+            <div style={{ fontSize: '9px', color: '#15803D', marginTop: '4px', fontWeight: 700 }}>
+              {closedTradesStats.winCount} winning trade{closedTradesStats.winCount !== 1 ? 's' : ''} in profit
+            </div>
+          </div>
+
+          {/* Standalone Loss */}
+          <div style={{ padding: '14px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5' }}>
+            <div style={{ fontSize: '9px', fontWeight: 700, color: '#991B1B', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              ▼ STANDALONE LOSS (LOSING TRADES)
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: '#DC2626', ...mono }}>
+              -${closedTradesStats.grossLoss.toFixed(2)}
+            </div>
+            <div style={{ fontSize: '9px', color: '#B91C1C', marginTop: '4px', fontWeight: 700 }}>
+              {closedTradesStats.lossCount} trade{closedTradesStats.lossCount !== 1 ? 's' : ''} closed as loss
+            </div>
+          </div>
+
+          {/* Win Rate & Profit Factor */}
+          <div style={{ padding: '14px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1' }}>
+            <div style={{ fontSize: '9px', fontWeight: 700, color: '#475569', letterSpacing: '0.5px', marginBottom: '4px' }}>
+              WIN RATE & PROFIT FACTOR
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 900, color: '#1E293B', ...mono }}>
+              {closedTradesStats.winRate.toFixed(1)}%
+            </div>
+            <div style={{ fontSize: '9px', color: '#475569', marginTop: '4px' }}>
+              Profit Factor: <span style={{ fontWeight: 800, color: '#0F172A', ...mono }}>{closedTradesStats.profitFactor.toFixed(2)}</span>
+            </div>
           </div>
         </div>
       </div>
