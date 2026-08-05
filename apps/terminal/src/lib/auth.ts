@@ -20,10 +20,10 @@ export interface SessionPayload extends JWTPayload {
 
 /** Validates and returns SESSION_SECRET. Throws if missing or too short. */
 export function requireSessionSecret(): string {
-  const secret = process.env.SESSION_SECRET;
+  const secret = process.env.SESSION_SECRET || process.env.RISK_HMAC_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error(
-      'Security Exception: SESSION_SECRET environment variable is missing or under the minimum required length of 32 characters.'
+      'Security Exception: SESSION_SECRET or RISK_HMAC_SECRET environment variable is missing or under the minimum required length of 32 characters.'
     );
   }
   return secret;
