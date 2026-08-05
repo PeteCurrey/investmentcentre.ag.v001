@@ -1,5 +1,5 @@
 import { createLogger, createPrice, toScaledInteger, ScaledInteger, insertGateDecision } from '@meridian/core';
-import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
+import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState } from '@meridian/risk';
 import { AutomationEngine, AutomationRule } from '@meridian/automation';
 import { TwelveDataAdapter } from '@meridian/adapters';
@@ -85,13 +85,13 @@ async function runAutonomousCycle() {
 
   log.info('Running autonomous evaluation cycle...', { cycle: atState.cycleCount + 1 });
 
-  const token     = process.env.OANDA_API_KEY;
+  const token     = getOandaApiKey();
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env       = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
   const hmacSecret = process.env.RISK_HMAC_SECRET;
 
   if (!token || !accountId || !hmacSecret) {
-    log.warn('Autonomous Execution Suspended: Missing OANDA_API_KEY, OANDA_ACCOUNT_ID, or RISK_HMAC_SECRET');
+    log.warn('Autonomous Execution Suspended: Missing OANDA_API_KEY (or fallback OANDA_API_TOKEN), OANDA_ACCOUNT_ID, or RISK_HMAC_SECRET');
     return;
   }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../../lib/auth';
-import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
+import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize } from '@meridian/risk';
 import { generateSignal } from '@meridian/signals';
 import { createPrice, moneyToString } from '@meridian/core';
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
   void nowStr; // used in log messages below
 
   // ── Startup env assertion ─────────────────────────────────────────────────
-  const apiKey = process.env.OANDA_API_KEY;
+  const apiKey = getOandaApiKey();
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
 

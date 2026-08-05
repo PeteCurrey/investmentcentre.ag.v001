@@ -98,13 +98,17 @@ export function parsePriceStringToBigInt(priceStr: string, targetScale?: number)
   };
 }
 
+export function getOandaApiKey(): string {
+  return process.env.OANDA_API_KEY || process.env.OANDA_API_TOKEN || '';
+}
+
 export class OandaBrokerAdapter implements BrokerAdapter {
   public readonly brokerName = 'Oandav20';
   public readonly isPaper: boolean;
   private config: OandaConfig;
 
   constructor(config?: Partial<OandaConfig>) {
-    const envApiKey = process.env.OANDA_API_KEY || '';
+    const envApiKey = getOandaApiKey();
     const envAccountId = process.env.OANDA_ACCOUNT_ID || '';
     this.config = {
       accountId: config?.accountId !== undefined ? config.accountId : envAccountId,

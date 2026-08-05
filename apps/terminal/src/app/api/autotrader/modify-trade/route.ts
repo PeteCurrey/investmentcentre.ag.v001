@@ -13,7 +13,7 @@ import { NextResponse } from 'next/server';
 import { requireSession } from '../../../../lib/auth';
 import { RiskGate, FTMO_STANDARD_PROFILE } from '@meridian/risk';
 import { createPrice } from '@meridian/core';
-import { parsePriceStringToBigInt } from '@meridian/execute';
+import { parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
 
 const OANDA_BASE = {
   practice: 'https://api-fxpractice.oanda.com/v3',
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  const token = process.env.OANDA_API_KEY;
+  const token = getOandaApiKey();
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
   const baseUrl = OANDA_BASE[env];

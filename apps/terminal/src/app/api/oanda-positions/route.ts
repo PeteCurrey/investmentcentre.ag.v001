@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getOandaApiKey } from '@meridian/execute';
 import { readCycleLogTradeMap } from '@meridian/core';
 import { requireSession } from '../../../lib/auth';
 
@@ -56,7 +57,7 @@ export async function GET() {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  const token = process.env.OANDA_API_KEY;
+  const token = getOandaApiKey();
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = process.env.OANDA_ENVIRONMENT || 'practice';
   const baseUrl =

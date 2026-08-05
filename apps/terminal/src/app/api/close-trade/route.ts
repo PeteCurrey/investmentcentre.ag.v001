@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../lib/auth';
 import { insertCycleLog } from '@meridian/core';
+import { getOandaApiKey } from '@meridian/execute';
 import crypto from 'crypto';
 
 export async function POST(request: Request) {
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const token = process.env.OANDA_API_KEY;
+  const token = getOandaApiKey();
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = process.env.OANDA_ENVIRONMENT || 'practice';
   const baseUrl =

@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server';
 import { FinnhubAdapter } from '@meridian/adapters';
-import { OandaBrokerAdapter } from '@meridian/execute';
+import { OandaBrokerAdapter, getOandaApiKey } from '@meridian/execute';
 import { requireSession } from '../../../lib/auth';
 
 // All instruments Meridian can trade, in OANDA instrument format
@@ -42,7 +42,7 @@ export async function GET() {
     return NextResponse.json({ error: 'UNAUTHORIZED: Valid session required.' }, { status: 401 });
   }
 
-  const token = process.env.OANDA_API_KEY;
+  const token = getOandaApiKey();
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
 
