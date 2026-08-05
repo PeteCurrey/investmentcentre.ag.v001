@@ -51,11 +51,12 @@ export async function GET() {
         autoStopLabel: null,
         updatedBy: 'system:auto-stop',
       });
-      return NextResponse.json({ success: true, ...(updated ?? config) });
+      const finalConfig = updated ?? config;
+      return NextResponse.json({ success: true, ...finalConfig, enabled: finalConfig.mode !== 'OBSERVE' });
     }
   }
 
-  return NextResponse.json({ success: true, ...config });
+  return NextResponse.json({ success: true, ...config, enabled: config.mode !== 'OBSERVE' });
 }
 
 // ─── POST /api/autotrader ──────────────────────────────────────────────────────
@@ -97,7 +98,7 @@ export async function POST(request: Request) {
     }
 
     const updated = await readAutotraderConfig();
-    return NextResponse.json({ success: true, ...(updated ?? {}) });
+    return NextResponse.json({ success: true, ...(updated ?? {}), enabled: updated ? updated.mode !== 'OBSERVE' : false });
   }
 
   // Handle config-only update (no mode change).
@@ -119,5 +120,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ success: true, ...updated });
+  return NextResponse.json({ success: true, ...updated, enabled: updated.mode !== 'OBSERVE' });
 }
