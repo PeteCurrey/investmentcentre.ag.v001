@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
@@ -23,8 +23,36 @@ export default function ConsoleLayout({
   children: React.ReactNode
 }) {
   const pathname = usePathname();
-
   const isTier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
+
+  const [feedStatus, setFeedStatus] = useState<'loading' | 'connected' | 'error'>('loading');
+  const [tickerPrices, setTickerPrices] = useState<{ symbol: string; price: string; change: string }[]>([]);
+
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch('/api/prices');
+        const data = await res.json();
+        if (data?.prices && Object.keys(data.prices).length > 0) {
+          setFeedStatus('connected');
+          setTickerPrices(
+            Object.entries(data.prices).map(([symbol, v]: [string, any]) => ({
+              symbol,
+              price: v.price,
+              change: v.change,
+            }))
+          );
+        } else {
+          setFeedStatus('error');
+        }
+      } catch {
+        setFeedStatus('error');
+      }
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column', backgroundColor: '#FFFFFF', color: '#0F172A' }}>
@@ -98,10 +126,27 @@ export default function ConsoleLayout({
         overflowX: 'auto',
         whiteSpace: 'nowrap'
       }}>
-        <span style={{ color: '#1E3A5F', fontWeight: 700, letterSpacing: '1px' }}>TICKER FEED //</span>
-        <span style={{ color: '#64748B' }}>REAL-TIME FEED: <strong style={{ color: '#991B1B', fontWeight: 600 }}>NOT CONNECTED</strong></span>
-        <span style={{ color: '#CBD5E1' }}>|</span>
-        <span style={{ color: '#94A3B8' }}>Set TWELVE_DATA_API_KEY or FINNHUB_API_KEY in environment for live streaming</span>
+        <span style={{ color: '#1E3A5F', fontWeight: 700, letterSpacing: '1px', flexShrink: 0 }}>LIVE FEED //</span>
+        {feedStatus === 'loading' && (
+          <span style={{ color: '#94A3B8' }}>CONNECTING TO MARKET DATA...</span>
+        )}
+        {feedStatus === 'error' && (
+          <span style={{ color: '#991B1B', fontWeight: 600 }}>⚠ FEED DISCONNECTED — Check TWELVE_DATA_API_KEY / FINNHUB_API_KEY in Vercel environment variables</span>
+        )}
+        {feedStatus === 'connected' && tickerPrices.map((t, i) => {
+          const isUp = t.change.startsWith('+');
+          return (
+            <span key={t.symbol} style={{ display: 'inline-flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+              {i > 0 && <span style={{ color: '#CBD5E1', marginRight: '-16px' }}>·</span>}
+              <span style={{ color: '#1E3A5F', fontWeight: 700 }}>{t.symbol}</span>
+              <span style={{ color: '#0F172A' }}>{t.price}</span>
+              <span style={{ color: isUp ? '#16A34A' : '#DC2626', fontWeight: 700 }}>{t.change}</span>
+            </span>
+          );
+        })}
+        {feedStatus === 'connected' && (
+          <span style={{ color: '#22C55E', fontWeight: 700, flexShrink: 0, marginLeft: '8px' }}>● LIVE</span>
+        )}
       </div>
 
       {/* Main Console Body */}
