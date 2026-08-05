@@ -26,7 +26,7 @@ export interface RiskProfile {
   sendTpToOanda: boolean;
 }
 
-export const DEFAULT_RISK_PROFILE: RiskProfile = {
+const DEFAULT_RISK_PROFILE: RiskProfile = {
   slPips: 30,
   tpPips: 60,
   useTrailingStop: true,
