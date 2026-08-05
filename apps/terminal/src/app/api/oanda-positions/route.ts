@@ -69,7 +69,7 @@ export async function GET() {
   try {
     const [openRes, tradesRes, accountRes, localMap] = await Promise.all([
       fetch(`${baseUrl}/accounts/${accountId}/openTrades`, { headers }),
-      fetch(`${baseUrl}/accounts/${accountId}/trades?state=ALL&count=100`, { headers }),
+      fetch(`${baseUrl}/accounts/${accountId}/trades?state=ALL&count=1000`, { headers }),
       fetch(`${baseUrl}/accounts/${accountId}/summary`, { headers }),
       getLocalTradesMap()
     ]);

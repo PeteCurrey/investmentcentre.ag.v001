@@ -259,7 +259,7 @@ function TradePageInner() {
   const [hoveredRow, setHoveredRow]                 = useState<string | null>(null);
   const [refreshCountdown, setRefreshCountdown]     = useState<number>(30);
 
-  const [pnlTimeframe, setPnlTimeframe]     = useState<'1h' | '3h' | '6h' | '24h' | 'ALL' | 'CUSTOM'>('24h');
+  const [pnlTimeframe, setPnlTimeframe]     = useState<'1h' | '3h' | '6h' | '24h' | 'ALL' | 'CUSTOM'>('ALL');
   const [customPnlHours, setCustomPnlHours] = useState<string>('12');
 
   const closedTradesStats = useMemo(() => {
@@ -1429,6 +1429,10 @@ function TradePageInner() {
             </span>
             <span style={{ fontSize: '9px', padding: '2px 7px', backgroundColor: '#F1F5F9', color: '#475569', fontWeight: 700, border: '1px solid #CBD5E1' }}>
               {closedTradesStats.totalClosed} CLOSED TRADE{closedTradesStats.totalClosed !== 1 ? 'S' : ''} IN TIMEFRAME
+            </span>
+            {/* Diagnostic: shows raw execLog counts */}
+            <span style={{ fontSize: '8px', padding: '2px 6px', backgroundColor: '#FEF9C3', color: '#92400E', fontWeight: 600, border: '1px solid #FDE68A' }}>
+              TOTAL IN LOG: {execLog.length} | CLOSED: {execLog.filter(e => e.status === 'CLOSED').length} | OPEN: {execLog.filter(e => e.status === 'OPEN').length}
             </span>
           </div>
 

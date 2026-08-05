@@ -1,0 +1,56 @@
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+
+export async function GET() {
+  const cookieStore = await cookies();
+  if (cookieStore.get('console_session')?.value !== 'active_session') {
+    return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
+  const token = process.env.OANDA_API_TOKEN;
+  const accountId = process.env.OANDA_ACCOUNT_ID;
+  const env = process.env.OANDA_ENVIRONMENT || 'practice';
+  const baseUrl = env === 'live'
+    ? 'https://api-fxtrade.oanda.com/v3'
+    : 'https://api-fxpractice.oanda.com/v3';
+
+  if (!token || !accountId) {
+    return NextResponse.json({ error: 'No OANDA credentials' });
+  }
+
+  const headers = { 'Authorization': `Bearer ${token}`, 'Accept-Datetime-Format': 'RFC3339' };
+
+  try {
+    const tradesRes = await fetch(`${baseUrl}/accounts/${accountId}/trades?state=CLOSED&count=50`, { headers });
+    const tradesData = tradesRes.ok ? await tradesRes.json() : { error: 'fetch failed', status: tradesRes.status };
+
+    // Also get account summary for comparison
+    const accountRes = await fetch(`${baseUrl}/accounts/${accountId}/summary`, { headers });
+    const accountData = accountRes.ok ? await accountRes.json() : { error: 'account fetch failed' };
+
+    const rawTrades = (tradesData.trades || []).map((t: any) => ({
+      id: t.id,
+      instrument: t.instrument,
+      state: t.state,
+      openTime: t.openTime,
+      closeTime: t.closeTime,
+      realizedPL: t.realizedPL,
+      unrealizedPL: t.unrealizedPL,
+      initialUnits: t.initialUnits,
+      currentUnits: t.currentUnits,
+      averageClosePrice: t.averageClosePrice,
+      price: t.price,
+    }));
+
+    return NextResponse.json({
+      tradeCount: rawTrades.length,
+      trades: rawTrades,
+      accountPL: accountData?.account?.pl,
+      accountUnrealizedPL: accountData?.account?.unrealizedPL,
+      accountNAV: accountData?.account?.NAV,
+      accountBalance: accountData?.account?.balance,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message });
+  }
+}
