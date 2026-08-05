@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import TradingViewChart from '../../../components/TradingViewChart';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
@@ -108,7 +108,7 @@ const ratingColor = (r: string) => {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function TradePage() {
+function TradePageInner() {
   const searchParams = useSearchParams();
 
   // Instrument state — resolve from URL params or default
@@ -1424,5 +1424,18 @@ export default function TradePage() {
         }
       `}</style>
     </div>
+  );
+}
+
+// ── Suspense wrapper required by Next.js 15 for useSearchParams() ─────────────
+export default function TradePage() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#0F172A', color: '#C8F135', fontFamily: '"DM Mono", monospace', fontSize: '13px', letterSpacing: '1px' }}>
+        MERIDIAN TERMINAL — LOADING TRADE DESK...
+      </div>
+    }>
+      <TradePageInner />
+    </Suspense>
   );
 }
