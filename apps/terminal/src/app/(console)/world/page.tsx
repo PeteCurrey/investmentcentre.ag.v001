@@ -2,6 +2,7 @@
 
 import React from 'react';
 import TradeButton from '../../../components/TradeButton';
+import AutoListButton from '../../../components/AutoListButton';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
 
 export default function WorldPage() {
@@ -133,10 +134,15 @@ export default function WorldPage() {
               
               <div>
                 <div style={{ fontSize: '10px', color: '#6B7280', fontWeight: 700, marginBottom: '8px' }}>LINKED INSTRUMENTS</div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                   {region.instruments.map(symbol => {
                     const inst = INSTRUMENT_UNIVERSE.find(i => i.symbol === symbol);
-                    return inst ? <TradeButton key={symbol} instrument={inst} /> : null;
+                    return inst ? (
+                      <div key={symbol} style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                        <TradeButton instrument={inst} />
+                        <AutoListButton symbol={symbol} />
+                      </div>
+                    ) : null;
                   })}
                 </div>
               </div>

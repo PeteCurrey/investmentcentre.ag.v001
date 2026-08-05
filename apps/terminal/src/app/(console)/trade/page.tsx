@@ -4,6 +4,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo, Suspense } fr
 import { useSearchParams } from 'next/navigation';
 import TradingViewChart from '../../../components/TradingViewChart';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
+import { getStoredAutoList, setStoredAutoList } from '../../../components/AutoListButton';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -274,6 +275,11 @@ function TradePageInner() {
         if (savedLocal !== null) {
           data.enabled = savedLocal === 'true';
         }
+        // Merge stored auto list if available
+        const storedList = getStoredAutoList();
+        if (storedList && storedList.length > 0) {
+          data.selectedInstruments = Array.from(new Set([...data.selectedInstruments, ...storedList]));
+        }
         setAutotrader(data);
         if (data.lotUnits) setCustomLotUnits(String(data.lotUnits));
       }
@@ -387,6 +393,7 @@ function TradePageInner() {
 
     if (updated.length === 0) return; // Must keep at least 1 instrument
 
+    setStoredAutoList(updated);
     try {
       const res = await fetch('/api/autotrader', {
         method: 'POST',
@@ -728,23 +735,28 @@ function TradePageInner() {
           }}>
             {/* Instrument Selection */}
             <div>
-              <div style={{ fontSize: '10px', fontWeight: 800, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '8px' }}>
-                SELECT INSTRUMENTS TO AUTO-TRADE (CLICK TO TOGGLE):
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 800, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px' }}>
+                  AUTO-TRADING WATCHLIST (SELECT FROM ALL 65+ INSTRUMENTS):
+                </div>
+                <div style={{ fontSize: '9px', color: autotrader.enabled ? '#C8F135' : '#16A34A', fontWeight: 700 }}>
+                  {autotrader.selectedInstruments?.length || 0} INSTRUMENTS SELECTED FOR AUTONOMOUS CYCLES
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {instruments.map(i => {
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '8px', backgroundColor: autotrader.enabled ? '#1E293B' : '#F8FAFC', border: '1px solid #CBD5E1' }}>
+                {INSTRUMENT_UNIVERSE.map(i => {
                   const isSelected = (autotrader.selectedInstruments || ['GBP/USD']).includes(i.symbol);
                   return (
                     <button
                       key={i.symbol}
                       onClick={() => handleToggleInstrument(i.symbol)}
                       style={{
-                        padding: '6px 14px',
-                        backgroundColor: isSelected ? '#16A34A' : (autotrader.enabled ? '#1E293B' : '#F3F4F6'),
-                        color: isSelected ? '#FFFFFF' : (autotrader.enabled ? '#94A3B8' : '#6B7280'),
+                        padding: '4px 10px',
+                        backgroundColor: isSelected ? '#16A34A' : (autotrader.enabled ? '#0F172A' : '#FFFFFF'),
+                        color: isSelected ? '#FFFFFF' : (autotrader.enabled ? '#94A3B8' : '#475569'),
                         border: `1px solid ${isSelected ? '#16A34A' : (autotrader.enabled ? '#334155' : '#D1D5DB')}`,
-                        fontSize: '10px', fontWeight: 700, cursor: 'pointer', ...mono,
-                        display: 'flex', alignItems: 'center', gap: '6px',
+                        fontSize: '9px', fontWeight: 700, cursor: 'pointer', ...mono,
+                        display: 'flex', alignItems: 'center', gap: '4px',
                       }}
                     >
                       <span>{isSelected ? '✓' : '+'}</span>

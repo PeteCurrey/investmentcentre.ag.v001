@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { INSTRUMENT_UNIVERSE, ASSET_CLASS_LABELS, ASSET_CLASS_COLORS } from '../../../lib/instruments';
 import TradeButton from '../../../components/TradeButton';
+import AutoListButton from '../../../components/AutoListButton';
 
 // Mock signal generator
 const generateSignals = () => {
@@ -232,7 +233,10 @@ export default function EdgePage() {
                     </div>
                   </td>
                   <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                    <TradeButton instrument={{ symbol: signal.symbol, oandaId: signal.oandaId }} />
+                    <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                      <AutoListButton symbol={signal.symbol} />
+                      <TradeButton instrument={{ symbol: signal.symbol, oandaId: signal.oandaId }} />
+                    </div>
                   </td>
                 </tr>
               ))}

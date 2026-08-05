@@ -2,6 +2,7 @@
 
 import React from 'react';
 import TradeButton from '../../../components/TradeButton';
+import AutoListButton from '../../../components/AutoListButton';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
 
 export default function BriefPage() {
@@ -101,10 +102,15 @@ export default function BriefPage() {
               
               <div style={{ borderTop: '1px solid #E4E4DF', paddingTop: '16px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: '8px' }}>LINKED INSTRUMENTS</span>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                   {brief.instruments.map(symbol => {
                     const inst = INSTRUMENT_UNIVERSE.find(i => i.symbol === symbol);
-                    return inst ? <TradeButton key={symbol} instrument={inst} /> : null;
+                    return inst ? (
+                      <div key={symbol} style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                        <TradeButton instrument={inst} />
+                        <AutoListButton symbol={symbol} />
+                      </div>
+                    ) : null;
                   })}
                 </div>
               </div>

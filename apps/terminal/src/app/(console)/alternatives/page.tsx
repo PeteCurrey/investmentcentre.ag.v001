@@ -2,6 +2,7 @@
 
 import React from 'react';
 import TradeButton from '../../../components/TradeButton';
+import AutoListButton from '../../../components/AutoListButton';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
 
 function instFor(sym: string) {
@@ -69,7 +70,10 @@ export default function AlternativesPage() {
                     </td>
                     <td style={{ padding: '12px 16px', fontWeight: 700, fontSize: '12px', color: '#6B7280' }}>{row.bias}</td>
                     <td style={{ padding: '12px 16px' }}>
-                      <TradeButton instrument={instFor(row.symbol)} />
+                      <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                        <AutoListButton symbol={row.symbol} />
+                        <TradeButton instrument={instFor(row.symbol)} />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -141,7 +145,10 @@ export default function AlternativesPage() {
                     <div style={{ fontWeight: 700, color: '#1C3A5E' }}>{c.symbol}</div>
                     <div style={{ fontSize: '12px', color: '#6B7280' }}>{c.name}</div>
                   </div>
-                  <TradeButton instrument={instFor(c.symbol)} />
+                  <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                    <AutoListButton symbol={c.symbol} />
+                    <TradeButton instrument={instFor(c.symbol)} />
+                  </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
                   <span style={{ color: '#6B7280' }}>Dominance</span>

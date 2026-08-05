@@ -2,6 +2,7 @@
 
 import React from 'react';
 import TradeButton from '../../../components/TradeButton';
+import AutoListButton from '../../../components/AutoListButton';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
 
 // Helper: get instrument object for TradeButton, fallback to symbol-based stub
@@ -111,9 +112,12 @@ export default function HorizonPage() {
                         {evt.outcome}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                       {evt.instruments.map(sym => (
-                        <TradeButton key={sym} instrument={instFor(sym)} />
+                        <div key={sym} style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                          <TradeButton instrument={instFor(sym)} />
+                          <AutoListButton symbol={sym} />
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -166,9 +170,12 @@ export default function HorizonPage() {
                       </p>
                     ))}
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', borderTop: '1px solid #E4E4DF', paddingTop: '16px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', borderTop: '1px solid #E4E4DF', paddingTop: '16px', alignItems: 'center' }}>
                     {theme.instruments.map(sym => (
-                      <TradeButton key={sym} instrument={instFor(sym)} />
+                      <div key={sym} style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+                        <TradeButton instrument={instFor(sym)} />
+                        <AutoListButton symbol={sym} />
+                      </div>
                     ))}
                   </div>
                 </div>

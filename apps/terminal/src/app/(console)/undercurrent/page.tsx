@@ -2,6 +2,7 @@
 
 import React from 'react';
 import TradeButton from '../../../components/TradeButton';
+import AutoListButton from '../../../components/AutoListButton';
 import { INSTRUMENT_UNIVERSE } from '../../../lib/instruments';
 
 export default function UndercurrentPage() {
@@ -135,7 +136,10 @@ export default function UndercurrentPage() {
                   <td style={{ padding: '12px 16px', fontFamily: '"DM Mono", monospace' }}>{row.cot > 0 ? '+' : ''}{row.cot.toLocaleString()}</td>
                   <td style={{ padding: '12px 16px', fontWeight: 700, fontSize: '12px', color: row.signal.includes('BUY') ? '#22C55E' : row.signal.includes('SELL') ? '#DC2626' : '#6B7280' }}>{row.signal}</td>
                   <td style={{ padding: '12px 16px' }}>
-                    <TradeButton instrument={{ symbol: row.symbol, oandaId: row.oandaId }} />
+                    <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                      <AutoListButton symbol={row.symbol} />
+                      <TradeButton instrument={{ symbol: row.symbol, oandaId: row.oandaId }} />
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -10,6 +10,7 @@ import {
   Instrument
 } from '../../../lib/instruments';
 import TradeButton from '../../../components/TradeButton';
+import AutoListButton from '../../../components/AutoListButton';
 
 type PriceData = {
   price: string;
@@ -347,7 +348,8 @@ export default function MarketsPage() {
                           {renderChange(priceData.change)}
                         </td>
                         <td style={{ padding: '16px', textAlign: 'right', width: '20%' }}>
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <AutoListButton symbol={inst.symbol} />
                             <TradeButton 
                               instrument={inst}
                               direction="SELL"
