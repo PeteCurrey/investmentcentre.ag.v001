@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import {
   readAutotraderConfig,
   writeAutotraderConfig,
@@ -7,19 +6,17 @@ import {
   RiskProfileConfig,
 } from '@meridian/core';
 import { requestTransition, AutotraderMode } from '@meridian/core';
+import { requireSession } from '../../../lib/auth';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 // Re-exported so the UI can import from a single location.
 export type { AutotraderMode, AutotraderConfig, RiskProfileConfig };
 
-async function auth(): Promise<boolean> {
-  const cookieStore = await cookies();
-  return cookieStore.get('console_session')?.value === 'active_session';
-}
-
 // ─── GET /api/autotrader ───────────────────────────────────────────────────────
 export async function GET() {
-  if (!(await auth())) {
+  try {
+    await requireSession();
+  } catch {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
@@ -63,7 +60,10 @@ export async function GET() {
 
 // ─── POST /api/autotrader ──────────────────────────────────────────────────────
 export async function POST(request: Request) {
-  if (!(await auth())) {
+  let sessionPayload;
+  try {
+    sessionPayload = await requireSession();
+  } catch {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
@@ -85,11 +85,7 @@ export async function POST(request: Request) {
   // Handle a mode transition request.
   if (body.requestTransition) {
     const { from, to, reason } = body.requestTransition;
-    const cookieStore = await cookies();
-    // The actor is always 'user' — there is a single human operator.
-    const actor = cookieStore.get('console_session')?.value === 'active_session'
-      ? 'user'
-      : 'unknown';
+    const actor = sessionPayload.sub || 'user';
 
     const result = await requestTransition(from, to, actor, reason);
 
@@ -113,7 +109,7 @@ export async function POST(request: Request) {
     ...(body.autoStopAt !== undefined && { autoStopAt: body.autoStopAt }),
     ...(body.autoStopLabel !== undefined && { autoStopLabel: body.autoStopLabel }),
     ...(body.riskProfile !== undefined && { riskProfile: body.riskProfile }),
-    updatedBy: 'user',
+    updatedBy: sessionPayload.sub || 'user',
   });
 
   if (!updated) {

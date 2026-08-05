@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import { TwelveDataAdapter, FinnhubAdapter } from '@meridian/adapters';
+import { requireSession } from '../../../lib/auth';
 
 export async function GET() {
+  try {
+    await requireSession();
+  } catch {
+    return NextResponse.json({ error: 'UNAUTHORIZED: Valid session required.' }, { status: 401 });
+  }
   const td = new TwelveDataAdapter();
   const fh = new FinnhubAdapter();
 

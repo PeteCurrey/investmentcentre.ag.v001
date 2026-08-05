@@ -1,17 +1,14 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { requireSession } from '../../../lib/auth';
 import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent } from '@meridian/risk';
 import { toScaledInteger, createPrice, moneyToString, insertCycleLog } from '@meridian/core';
 import crypto from 'crypto';
 
-async function auth(): Promise<boolean> {
-  const cookieStore = await cookies();
-  return cookieStore.get('console_session')?.value === 'active_session';
-}
-
 export async function GET() {
-  if (!(await auth())) {
+  try {
+    await requireSession();
+  } catch {
     return NextResponse.json(
       { error: 'UNAUTHORIZED: Authentication required.' },
       { status: 401 }
@@ -24,7 +21,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  if (!(await auth())) {
+  try {
+    await requireSession();
+  } catch {
     return NextResponse.json(
       { error: 'UNAUTHORIZED: Authentication required.' },
       { status: 401 }

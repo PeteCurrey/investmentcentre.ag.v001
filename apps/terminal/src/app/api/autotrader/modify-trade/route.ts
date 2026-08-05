@@ -1,18 +1,15 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { requireSession } from '../../../../lib/auth';
 
 const OANDA_BASE = {
   practice: 'https://api-fxpractice.oanda.com/v3',
   live: 'https://api-fxtrade.oanda.com/v3',
 };
 
-async function auth() {
-  const cookieStore = await cookies();
-  return cookieStore.get('console_session')?.value === 'active_session';
-}
-
 export async function POST(request: Request) {
-  if (!(await auth())) {
+  try {
+    await requireSession();
+  } catch {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 

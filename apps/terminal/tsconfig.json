@@ -3,6 +3,7 @@
   "compilerOptions": {
     "outDir": "dist",
     "composite": true,
+    "baseUrl": ".",
     "lib": [
       "dom",
       "dom.iterable",
@@ -14,7 +15,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
-    "paths": {},
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "plugins": [
       {
         "name": "next"

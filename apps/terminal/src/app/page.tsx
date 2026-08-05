@@ -1,11 +1,10 @@
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { getSession } from '../lib/auth';
 
 export default async function HomePage() {
-  const cookieStore = await cookies();
-  const session = cookieStore.get('console_session')?.value;
+  const session = await getSession();
 
-  if (session === 'active_session') {
+  if (session) {
     redirect('/brief');
   } else {
     redirect('/login');

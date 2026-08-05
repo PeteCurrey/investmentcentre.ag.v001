@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { verifySessionToken } from './lib/auth';
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Redirect legacy /landing route to /meridian
@@ -20,9 +21,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for active console session cookie
-  const session = request.cookies.get('console_session')?.value;
-  const isAuthenticated = session === 'active_session';
+  // Check for active console session token
+  const token =
+    request.cookies.get('console_session')?.value ||
+    request.cookies.get('__meridian_session')?.value;
+
+  const payload = token ? await verifySessionToken(token) : null;
+  const isAuthenticated = payload !== null;
 
   if (!isAuthenticated) {
     // Return 401 JSON for API routes

@@ -1,24 +1,65 @@
 import React from 'react';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import crypto from 'crypto';
+import { createSessionToken } from '../../lib/auth';
+import { checkLoginRateLimit, recordLoginAttempt } from '../../lib/rateLimit';
+
+function constantTimeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 async function handleLogin(formData: FormData) {
   'use server';
 
-  const password = formData.get('password');
-  const expectedPassword = process.env.ADMIN_PASSWORD || 'meridian_terminal_2026';
+  const headerStore = await headers();
+  const clientIp =
+    headerStore.get('x-forwarded-for')?.split(',')[0].trim() ||
+    headerStore.get('x-real-ip') ||
+    '127.0.0.1';
 
-  if (password === expectedPassword) {
+  // 1. Rate limit check: 5 attempts per 15 minutes per IP
+  const rateLimit = await checkLoginRateLimit(clientIp);
+  if (!rateLimit.allowed) {
+    redirect('/login?error=rate_limited');
+  }
+
+  // 2. ADMIN_PASSWORD validation — MUST throw 500 configuration error if unset. Never fall back to default.
+  const expectedPassword = process.env.ADMIN_PASSWORD;
+  if (!expectedPassword) {
+    throw new Error('500: Server Configuration Error — ADMIN_PASSWORD environment variable is missing.');
+  }
+
+  const password = formData.get('password');
+  if (typeof password !== 'string' || !password) {
+    await recordLoginAttempt(clientIp, false);
+    redirect('/login?error=invalid_credentials');
+  }
+
+  // 3. Constant-time password comparison
+  const isMatch = constantTimeCompare(password, expectedPassword);
+
+  if (isMatch) {
+    await recordLoginAttempt(clientIp, true);
+    // 4. Issue signed JWT session token (8h expiry)
+    const token = await createSessionToken('operator');
     const cookieStore = await cookies();
-    cookieStore.set('console_session', 'active_session', {
+    cookieStore.set('console_session', token, {
       path: '/',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 86400, // 24 hours
+      maxAge: 28800, // 8 hours max
     });
     redirect('/brief');
   } else {
+    await recordLoginAttempt(clientIp, false);
     redirect('/login?error=invalid_credentials');
   }
 }
@@ -30,6 +71,15 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   const error = params.error;
+
+  let errorMessage = '';
+  if (error === 'rate_limited') {
+    errorMessage = 'AUTHENTICATION FAILED: TOO MANY ATTEMPTS. LOCKOUT ACTIVE (MAX 5 PER 15 MINS).';
+  } else if (error === 'config_error') {
+    errorMessage = 'CONFIGURATION ERROR: ADMIN_PASSWORD UNSET ON SERVER.';
+  } else if (error === 'invalid_credentials') {
+    errorMessage = 'AUTHENTICATION FAILED: ACCESS CODE INVALID';
+  }
 
   return (
     <div style={{
@@ -93,7 +143,7 @@ export default async function LoginPage({
             />
           </div>
 
-          {error && (
+          {errorMessage && (
             <div style={{
               fontSize: '12px',
               color: '#DC2626',
@@ -102,7 +152,7 @@ export default async function LoginPage({
               padding: '8px',
               backgroundColor: '#FEF2F2'
             }}>
-              AUTHENTICATION FAILED: ACCESS CODE INVALID
+              {errorMessage}
             </div>
           )}
 

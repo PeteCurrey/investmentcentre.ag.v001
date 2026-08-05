@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
+import { requireSession } from '../../../lib/auth';
 
 export async function POST(request: Request) {
+  try {
+    await requireSession();
+  } catch {
+    return NextResponse.json({ error: 'UNAUTHORIZED: Authentication required.' }, { status: 401 });
+  }
   const body = await request.json() as { instrument: string; direction: string; units: string; stopLoss: string; takeProfit: string; timeframe: string; currentPrice: string };
   const { instrument, direction, units, stopLoss, takeProfit, timeframe, currentPrice } = body;
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { requireSession } from '../../../../lib/auth';
 import { OandaBrokerAdapter, parsePriceStringToBigInt } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent } from '@meridian/risk';
 import { toScaledInteger, createPrice, moneyToString } from '@meridian/core';
@@ -33,8 +33,9 @@ const getPipValue = (instrument: string): number => {
 // ─── POST /api/autotrader/run-cycle ──────────────────────────────────────────
 
 export async function POST() {
-  const cookieStore = await cookies();
-  if (cookieStore.get('console_session')?.value !== 'active_session') {
+  try {
+    await requireSession();
+  } catch {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 

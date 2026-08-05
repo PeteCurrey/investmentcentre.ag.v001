@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { requireSession } from '../../../lib/auth';
 import { insertCycleLog } from '@meridian/core';
 import crypto from 'crypto';
 
 export async function POST(request: Request) {
-  const cookieStore = await cookies();
-  if (cookieStore.get('console_session')?.value !== 'active_session') {
+  try {
+    await requireSession();
+  } catch {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 

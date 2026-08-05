@@ -38,7 +38,7 @@ interface CycleLogItem {
   reason: string; orderId?: string;
 }
 interface AutotraderState {
-  enabled: boolean; lastToggled: string; cycleCount: number;
+  enabled: boolean; mode?: 'OBSERVE' | 'PAPER' | 'LIVE'; lastToggled: string; cycleCount: number;
   selectedInstruments: string[]; lotUnits: number;
   lastSignal: string | null; lastInstrument: string | null;
   lastDirection: string | null; lastPrice: string | null;

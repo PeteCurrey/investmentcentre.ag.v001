@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { readCycleLogTradeMap } from '@meridian/core';
+import { requireSession } from '../../../lib/auth';
 
 const getDecimalPlaces = (instrument: string): number => {
   if (instrument.includes('JPY')) return 3;
@@ -8,9 +8,11 @@ const getDecimalPlaces = (instrument: string): number => {
   if (
     instrument === 'SPX500_USD' ||
     instrument === 'NAS100_USD' ||
-    instrument === 'SPX 500'
-  )
-    return 1;
+    instrument === 'US30_USD' ||
+    instrument === 'WTICO_USD' ||
+    instrument === 'BCO_USD' ||
+    instrument === 'BTC_USD'
+  ) return 2;
   return 5;
 };
 
@@ -48,8 +50,9 @@ interface OandaAccountSummary {
 // ─── GET /api/oanda-positions ────────────────────────────────────────────────
 
 export async function GET() {
-  const cookieStore = await cookies();
-  if (cookieStore.get('console_session')?.value !== 'active_session') {
+  try {
+    await requireSession();
+  } catch {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
