@@ -38,6 +38,14 @@ interface AutotraderState {
   autoStopAt: string | null;
   autoStopLabel: string | null;
   previousPrices?: Record<string, number>;
+  riskProfile?: {
+    slPips: number;
+    tpPips: number;
+    useTrailingStop: boolean;
+    trailingDistancePips: number;
+    breakEvenTriggerPips: number;
+    sendTpToOanda: boolean;
+  };
 }
 
 const DEFAULT_STATE: AutotraderState = {
@@ -54,7 +62,15 @@ const DEFAULT_STATE: AutotraderState = {
   lastCycleLogs: [],
   autoStopAt: null,
   autoStopLabel: null,
-  previousPrices: {}
+  previousPrices: {},
+  riskProfile: {
+    slPips: 30,
+    tpPips: 60,
+    useTrailingStop: true,
+    trailingDistancePips: 15,
+    breakEvenTriggerPips: 20,
+    sendTpToOanda: true,
+  }
 };
 
 async function readAutotraderState(): Promise<AutotraderState> {
@@ -263,10 +279,21 @@ export async function POST(request: Request) {
     else if (symbol === 'SPX 500' || symbol === 'WTI Oil') unitsToTrade = Math.min(configuredUnits, 10);
     else if (symbol === 'BTC/USD') unitsToTrade = 1;
 
+    // Read risk profile — fallback to safe defaults if not configured
+    const rp = {
+      slPips: state.riskProfile?.slPips ?? 30,
+      tpPips: state.riskProfile?.tpPips ?? 60,
+      useTrailingStop: state.riskProfile?.useTrailingStop ?? true,
+      trailingDistancePips: state.riskProfile?.trailingDistancePips ?? 15,
+      breakEvenTriggerPips: state.riskProfile?.breakEvenTriggerPips ?? 20,
+      sendTpToOanda: state.riskProfile?.sendTpToOanda ?? true
+    };
+
     const dp = getDecimalPlaces(symbol);
     const pipVal = getPipValue(symbol);
-    const slDistance = 30 * pipVal;
-    const tpDistance = 60 * pipVal;
+    const slDistance = rp.slPips * pipVal;
+    const tpDistance = rp.tpPips * pipVal;
+    const trailingDistance = rp.trailingDistancePips * pipVal;
 
     const slOffset = direction === 'BUY' ? -slDistance : slDistance;
     const tpOffset = direction === 'BUY' ? tpDistance : -tpDistance;
@@ -274,6 +301,8 @@ export async function POST(request: Request) {
     const entryStr = spotPrice.toFixed(dp);
     const slStr = (spotPrice + slOffset).toFixed(dp);
     const tpStr = (spotPrice + tpOffset).toFixed(dp);
+    // Format trailing distance to match instrument decimal precision
+    const trailingStr = trailingDistance.toFixed(dp);
 
     const parts = symbol.split('/');
     const quoteCurrency = parts.length === 2 ? parts[1] : 'USD';
@@ -284,7 +313,9 @@ export async function POST(request: Request) {
 
     const entryPrice = createPrice(entryParsed.amount, entryParsed.scale, quoteCurrency);
     const stopLossPrice = createPrice(slParsed.amount, slParsed.scale, quoteCurrency);
-    const takeProfitPrice = createPrice(tpParsed.amount, tpParsed.scale, quoteCurrency);
+    const takeProfitPrice = rp.sendTpToOanda
+      ? createPrice(tpParsed.amount, tpParsed.scale, quoteCurrency)
+      : undefined;
 
     const intent: OrderIntent = {
       id: `auto_${crypto.randomUUID()}`,
@@ -295,6 +326,9 @@ export async function POST(request: Request) {
       entryPrice,
       stopLossPrice,
       takeProfitPrice,
+      // When trailing stop is ON, pass the distance string; the OANDA adapter will use
+      // trailingStopLossOnFill instead of a fixed stopLossOnFill
+      ...(rp.useTrailingStop ? { trailingStopDistance: trailingStr } : {}),
       requestedAt: new Date().toISOString()
     };
 
@@ -345,7 +379,11 @@ export async function POST(request: Request) {
       : entryStr;
 
     const rsiVal = (48.5 + (direction === 'BUY' ? 4.2 : -4.2)).toFixed(1);
-    const fullReasoning = `[AUTOMATED TIER 4 SIGNAL] ${signalReason} | Technical Indicators: RSI 14=${rsiVal}, 15m EMA Trend (${direction === 'BUY' ? 'Bullish' : 'Bearish'}) | Fundamental Sentiment: ${direction === 'BUY' ? 'Bullish (+0.42)' : 'Bearish (-0.38)'} | RiskGate: APPROVED (FTMO Standard Profile) | Risk Protection: SL ${slStr} / TP ${tpStr} | Size: ${unitsToTrade} units`;
+    const rp2 = state.riskProfile || { slPips: 30, tpPips: 60, useTrailingStop: true, trailingDistancePips: 15 };
+    const protectionDesc = rp2.useTrailingStop
+      ? `TSL ${rp2.trailingDistancePips}p trailing / TP ${rp2.tpPips}p (${tpStr})`
+      : `SL ${rp2.slPips}p (${slStr}) / TP ${rp2.tpPips}p (${tpStr})`;
+    const fullReasoning = `[AUTOMATED TIER 4 SIGNAL] ${signalReason} | Technical Indicators: RSI 14=${rsiVal}, 15m EMA Trend (${direction === 'BUY' ? 'Bullish' : 'Bearish'}) | Fundamental Sentiment: ${direction === 'BUY' ? 'Bullish (+0.42)' : 'Bearish (-0.38)'} | RiskGate: APPROVED (FTMO Standard Profile) | Risk Protection: ${protectionDesc} | Size: ${unitsToTrade} units`;
 
     // Record trade with all OANDA ID formats so lookup matches perfectly
     const dbRecord = {

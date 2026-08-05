@@ -148,20 +148,49 @@ export class OandaBrokerAdapter implements BrokerAdapter {
           clientExtensions: {
             id: intent.id
           },
-          stopLossOnFill: intent.stopLossPrice ? {
-            // Serialise ScaledInteger to OANDA's required decimal string format using pure string
-            // arithmetic — no float division. E.g. price=13000n, scale=4 -> "1.3000".
-            price: (() => {
-              const raw = intent.stopLossPrice.price.toString().replace('-', '');
-              const scale = intent.stopLossPrice.scale;
-              const negative = intent.stopLossPrice.price < 0n;
-              const padded = raw.padStart(scale + 1, '0');
-              const intStr = padded.slice(0, padded.length - scale) || '0';
-              const decStr = padded.slice(padded.length - scale);
-              const formatted = scale > 0 ? `${intStr}.${decStr}` : intStr;
-              return negative ? `-${formatted}` : formatted;
-            })()
-          } : undefined
+          // Use trailing stop if distance is specified — otherwise use a fixed stop loss price.
+          // OANDA does not accept both simultaneously.
+          ...(intent.trailingStopDistance
+            ? {
+                trailingStopLossOnFill: {
+                  distance: intent.trailingStopDistance,
+                  timeInForce: 'GTC'
+                }
+              }
+            : intent.stopLossPrice
+            ? {
+                stopLossOnFill: {
+                  price: (() => {
+                    const raw = intent.stopLossPrice.price.toString().replace('-', '');
+                    const scale = intent.stopLossPrice.scale;
+                    const negative = intent.stopLossPrice.price < 0n;
+                    const padded = raw.padStart(scale + 1, '0');
+                    const intStr = padded.slice(0, padded.length - scale) || '0';
+                    const decStr = padded.slice(padded.length - scale);
+                    const formatted = scale > 0 ? `${intStr}.${decStr}` : intStr;
+                    return negative ? `-${formatted}` : formatted;
+                  })()
+                }
+              }
+            : {}),
+          // Always forward take profit to OANDA when provided
+          ...(intent.takeProfitPrice
+            ? {
+                takeProfitOnFill: {
+                  price: (() => {
+                    const raw = intent.takeProfitPrice.price.toString().replace('-', '');
+                    const scale = intent.takeProfitPrice.scale;
+                    const negative = intent.takeProfitPrice.price < 0n;
+                    const padded = raw.padStart(scale + 1, '0');
+                    const intStr = padded.slice(0, padded.length - scale) || '0';
+                    const decStr = padded.slice(padded.length - scale);
+                    const formatted = scale > 0 ? `${intStr}.${decStr}` : intStr;
+                    return negative ? `-${formatted}` : formatted;
+                  })(),
+                  timeInForce: 'GTC'
+                }
+              }
+            : {})
         }
       };
 

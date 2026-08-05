@@ -105,7 +105,9 @@ function getTvSymbol(symbol: string): string {
 
 function computeTimeHeld(openedAt: string): string {
   if (!openedAt || openedAt === '—') return '—';
-  const tradeTime = new Date(openedAt.includes('T') ? openedAt : openedAt.replace(' ', 'T')).getTime();
+  let tStr = openedAt.includes('T') ? openedAt : openedAt.replace(' ', 'T');
+  if (!tStr.endsWith('Z')) tStr += 'Z';
+  const tradeTime = new Date(tStr).getTime();
   if (isNaN(tradeTime)) return openedAt;
   const ms = Date.now() - tradeTime;
   if (ms < 0) return 'Just now';
@@ -183,9 +185,47 @@ function TradePageInner() {
   // Auto-Trading Settings
   const [showConfig, setShowConfig]       = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
+  const [showRiskPanel, setShowRiskPanel] = useState(false);
   const [customStopTime, setCustomStopTime] = useState('');
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [savingRisk, setSavingRisk]        = useState(false);
   const [customLotUnits, setCustomLotUnits] = useState('100');
+
+  // Risk Management Settings
+  const [riskProfile, setRiskProfile] = useState<{
+    slPips: number;
+    tpPips: number;
+    useTrailingStop: boolean;
+    trailingDistancePips: number;
+    breakEvenTriggerPips: number;
+    sendTpToOanda: boolean;
+  }>({
+    slPips: 30,
+    tpPips: 60,
+    useTrailingStop: true,
+    trailingDistancePips: 15,
+    breakEvenTriggerPips: 20,
+    sendTpToOanda: true,
+  });
+
+  const handleSaveRiskProfile = async (updates: Partial<typeof riskProfile>) => {
+    const next = { ...riskProfile, ...updates };
+    setRiskProfile(next);
+    setSavingRisk(true);
+    try {
+      const res = await fetch('/api/autotrader', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ riskProfile: next }),
+      });
+      const data = await res.json();
+      if (data.riskProfile) setRiskProfile(data.riskProfile);
+    } catch (err) {
+      console.error('Failed to save risk profile:', err);
+    } finally {
+      setSavingRisk(false);
+    }
+  };
 
   // UI state
   const [expandedRow, setExpandedRow]       = useState<string | null>(null);
@@ -211,6 +251,9 @@ function TradePageInner() {
   const [chartModalInstrument, setChartModalInstrument] = useState<{ symbol: string; tvSymbol: string } | null>(null);
   const [chartModalTimeframe, setChartModalTimeframe]   = useState<string>('60');
 
+  // Chart theme (persisted)
+  const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
+
   // Table UX & Refresh Timer
   const [hoveredRow, setHoveredRow]                 = useState<string | null>(null);
   const [refreshCountdown, setRefreshCountdown]     = useState<number>(30);
@@ -235,7 +278,9 @@ function TradePageInner() {
       if (pnlTimeframe === 'ALL') return true;
       const timeStr = e.closedAt || e.timestamp;
       if (!timeStr || timeStr === '—') return false;
-      const tradeTime = new Date(timeStr.includes('T') ? timeStr : timeStr.replace(' ', 'T')).getTime();
+      let tStr = timeStr.includes('T') ? timeStr : timeStr.replace(' ', 'T');
+      if (!tStr.endsWith('Z')) tStr += 'Z';
+      const tradeTime = new Date(tStr).getTime();
       if (isNaN(tradeTime)) return true;
       return (now - tradeTime) <= cutoffMs;
     });
@@ -283,6 +328,19 @@ function TradePageInner() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Persist chart theme preference
+  useEffect(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('meridian_chart_theme') : null;
+    if (stored === 'light' || stored === 'dark') setChartTheme(stored);
+  }, []);
+  const toggleChartTheme = () => {
+    setChartTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      if (typeof window !== 'undefined') localStorage.setItem('meridian_chart_theme', next);
+      return next;
+    });
+  };
 
   const inst = instruments.find(i => i.symbol === selectedSymbol) || instruments[0];
   const tier4Active = process.env.NEXT_PUBLIC_TIER_4_ENABLED === 'true';
@@ -795,7 +853,24 @@ function TradePageInner() {
             )}
 
             <button
-              onClick={() => setShowConfig(v => !v)}
+              onClick={() => { setShowRiskPanel(v => !v); setShowConfig(false); setShowScheduler(false); }}
+              style={{
+                padding: '11px 14px', border: '1px solid',
+                borderColor: showRiskPanel ? '#22C55E' : (riskProfile.useTrailingStop ? '#16A34A' : '#D1D5DB'),
+                backgroundColor: showRiskPanel ? '#1E293B' : (riskProfile.useTrailingStop ? '#F0FDF4' : 'transparent'),
+                color: showRiskPanel ? '#FFFFFF' : (riskProfile.useTrailingStop ? '#15803D' : '#374151'),
+                fontSize: '10px', cursor: 'pointer', ...mono, fontWeight: 700,
+                display: 'flex', alignItems: 'center', gap: '5px'
+              }}
+            >
+              <span>🛡 RISK &amp; TRAILING STOPS</span>
+              <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '3px', backgroundColor: riskProfile.useTrailingStop ? '#22C55E' : '#64748B', color: '#FFF' }}>
+                {riskProfile.useTrailingStop ? 'TSL ON' : 'FIXED SL'}
+              </span>
+            </button>
+
+            <button
+              onClick={() => { setShowConfig(v => !v); setShowRiskPanel(false); setShowScheduler(false); }}
               style={{
                 padding: '11px 14px', border: '1px solid',
                 borderColor: showConfig ? '#3B82F6' : (autotrader?.enabled ? '#334155' : '#D1D5DB'),
@@ -808,7 +883,7 @@ function TradePageInner() {
             </button>
 
             <button
-              onClick={() => setShowScheduler(v => !v)}
+              onClick={() => { setShowScheduler(v => !v); setShowConfig(false); setShowRiskPanel(false); }}
               style={{
                 padding: '11px 14px', border: '1px solid',
                 borderColor: autotrader?.autoStopAt ? '#F59E0B' : (autotrader?.enabled ? '#334155' : '#D1D5DB'),
@@ -821,6 +896,117 @@ function TradePageInner() {
             </button>
           </div>
         </div>
+
+        {/* ── Subpanel: Risk Management & Trailing Stop Controls ── */}
+        {showRiskPanel && (
+          <div style={{
+            borderTop: `1px solid ${autotrader?.enabled ? '#1E293B' : '#E4E4DF'}`,
+            padding: '16px 20px',
+            backgroundColor: autotrader?.enabled ? '#0A0D12' : '#FFFFFF',
+            display: 'flex', flexDirection: 'column', gap: '16px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: autotrader?.enabled ? '#F8FAFC' : '#0F172A', letterSpacing: '0.8px' }}>
+                  🛡 AUTOMATED RISK MANAGEMENT &amp; TRAILING STOP CONTROLS
+                </div>
+                <div style={{ fontSize: '9px', color: '#64748B', marginTop: '2px' }}>
+                  Prevent profitable trades from turning into losses. Controls apply to all auto-executed trades on OANDA.
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', ...mono, color: '#16A34A', fontWeight: 700 }}>
+                {savingRisk ? 'SAVING...' : '✓ ACTIVE PROFILE'}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+              {/* Box 1: Trailing Stop Loss */}
+              <div style={{ padding: '12px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#0F172A' }}>TRAILING STOP LOSS</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '9px', fontWeight: 700, color: riskProfile.useTrailingStop ? '#16A34A' : '#64748B' }}>
+                    <input
+                      type="checkbox"
+                      checked={riskProfile.useTrailingStop}
+                      onChange={e => handleSaveRiskProfile({ useTrailingStop: e.target.checked })}
+                    />
+                    {riskProfile.useTrailingStop ? 'ENABLED' : 'DISABLED'}
+                  </label>
+                </div>
+                <div style={{ fontSize: '9px', color: '#64748B', marginBottom: '10px', lineHeight: 1.5 }}>
+                  Trails price dynamically. If price moves in profit, SL moves up/down to lock gains.
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '9px', color: '#475569', fontWeight: 600 }}>Trail Distance:</span>
+                  <input
+                    type="number"
+                    value={riskProfile.trailingDistancePips}
+                    onChange={e => handleSaveRiskProfile({ trailingDistancePips: Math.max(1, parseInt(e.target.value) || 15) })}
+                    style={{ width: '60px', padding: '4px 6px', border: '1px solid #CBD5E1', fontSize: '10px', fontWeight: 700, ...mono }}
+                  />
+                  <span style={{ fontSize: '9px', color: '#64748B', ...mono }}>pips</span>
+                </div>
+              </div>
+
+              {/* Box 2: Target SL & TP Pips */}
+              <div style={{ padding: '12px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '4px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 800, color: '#0F172A', marginBottom: '8px' }}>
+                  SL / TP TARGETS &amp; R:R RATIO
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '9px', color: '#475569' }}>Stop Loss (Pips):</span>
+                    <input
+                      type="number"
+                      value={riskProfile.slPips}
+                      onChange={e => handleSaveRiskProfile({ slPips: Math.max(5, parseInt(e.target.value) || 30) })}
+                      style={{ width: '60px', padding: '4px 6px', border: '1px solid #CBD5E1', fontSize: '10px', fontWeight: 700, ...mono }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '9px', color: '#475569' }}>Take Profit (Pips):</span>
+                    <input
+                      type="number"
+                      value={riskProfile.tpPips}
+                      onChange={e => handleSaveRiskProfile({ tpPips: Math.max(5, parseInt(e.target.value) || 60) })}
+                      style={{ width: '60px', padding: '4px 6px', border: '1px solid #CBD5E1', fontSize: '10px', fontWeight: 700, ...mono }}
+                    />
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#1C3A5E', fontWeight: 700, borderTop: '1px solid #E2E8F0', paddingTop: '4px', textAlign: 'right', ...mono }}>
+                    RISK/REWARD = 1 : {(riskProfile.tpPips / Math.max(1, riskProfile.slPips)).toFixed(1)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Box 3: Protection Options */}
+              <div style={{ padding: '12px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '4px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 800, color: '#0F172A', marginBottom: '8px' }}>
+                  OANDA BROKER INTEGRATION
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '9px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#334155' }}>
+                    <input
+                      type="checkbox"
+                      checked={riskProfile.sendTpToOanda}
+                      onChange={e => handleSaveRiskProfile({ sendTpToOanda: e.target.checked })}
+                    />
+                    <span>Submit Take Profit directly to OANDA on order fill</span>
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <span style={{ color: '#475569' }}>Break-Even Trigger:</span>
+                    <input
+                      type="number"
+                      value={riskProfile.breakEvenTriggerPips}
+                      onChange={e => handleSaveRiskProfile({ breakEvenTriggerPips: Math.max(5, parseInt(e.target.value) || 20) })}
+                      style={{ width: '50px', padding: '4px 6px', border: '1px solid #CBD5E1', fontSize: '10px', fontWeight: 700, ...mono }}
+                    />
+                    <span style={{ color: '#64748B', ...mono }}>pips profit</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Configuration Subpanel: Instruments & Lot Sizing ── */}
         {showConfig && autotrader && (
@@ -979,45 +1165,50 @@ function TradePageInner() {
 
       {/* ── Autonomous Cycle Feed / Log Section ── */}
       {autotrader?.lastCycleLogs && autotrader.lastCycleLogs.length > 0 && (
-        <div style={{ border: '1px solid #1C3A5E', backgroundColor: '#0F172A', color: '#F8FAFC', padding: '14px 18px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid #1E293B', paddingBottom: '8px' }}>
-            <div style={{ fontSize: '11px', fontWeight: 800, color: '#4ADE80', letterSpacing: '1px' }}>
-              ⚡ LIVE AUTONOMOUS CYCLE FEED — EVALUATION &amp; DECISION LOGS
+        <div style={{ border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF', padding: '14px 18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid #E2E8F0', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#22C55E', display: 'inline-block', boxShadow: '0 0 6px rgba(34,197,94,0.7)' }} />
+              <span style={{ fontSize: '11px', fontWeight: 800, color: '#0F172A', letterSpacing: '0.8px' }}>
+                LIVE AUTONOMOUS CYCLE FEED
+              </span>
+              <span style={{ fontSize: '9px', color: '#64748B', fontWeight: 400, letterSpacing: '0.3px' }}>— EVALUATION &amp; DECISION LOGS</span>
             </div>
-            <div style={{ fontSize: '9px', color: '#94A3B8' }}>
-              Cycles Completed: <span style={{ color: '#C8F135', fontWeight: 700 }}>{autotrader.cycleCount}</span> · Last Cycle: {autotrader.lastCycleAt ? new Date(autotrader.lastCycleAt).toLocaleTimeString() : '—'}
+            <div style={{ fontSize: '9px', color: '#94A3B8', ...mono }}>
+              Cycles: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{autotrader.cycleCount}</span>
+              {' · '}Last: {autotrader.lastCycleAt ? new Date(autotrader.lastCycleAt).toLocaleTimeString() : '—'}
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto', fontSize: '10px', ...mono }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '160px', overflowY: 'auto', fontSize: '10px', ...mono }}>
             {autotrader.lastCycleLogs.slice(0, 10).map((logItem) => {
               const isExec = logItem.action === 'EXECUTED';
               const isRej = logItem.action === 'REJECTED';
               return (
                 <div key={logItem.id} style={{
                   padding: '6px 10px',
-                  backgroundColor: isExec ? '#162312' : (isRej ? '#2A1212' : '#1E293B'),
-                  borderLeft: `4px solid ${isExec ? '#22C55E' : (isRej ? '#EF4444' : '#64748B')}`,
+                  backgroundColor: isExec ? '#F0FDF4' : (isRej ? '#FEF2F2' : '#F8FAFC'),
+                  borderLeft: `3px solid ${isExec ? '#22C55E' : (isRej ? '#EF4444' : '#CBD5E1')}`,
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px',
                 }}>
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ color: '#64748B', fontSize: '9px' }}>{logItem.timestamp}</span>
-                    <span style={{ fontWeight: 700, color: '#38BDF8' }}>{logItem.instrument}</span>
+                    <span style={{ color: '#94A3B8', fontSize: '9px' }}>{logItem.timestamp}</span>
+                    <span style={{ fontWeight: 700, color: '#1C3A5E' }}>{logItem.instrument}</span>
                     <span style={{
                       padding: '1px 6px', fontSize: '8px', fontWeight: 800,
-                      backgroundColor: isExec ? '#22C55E' : (isRej ? '#EF4444' : '#475569'),
+                      backgroundColor: isExec ? '#22C55E' : (isRej ? '#EF4444' : '#64748B'),
                       color: '#FFFFFF',
                     }}>
                       {logItem.action}
                     </span>
                     {logItem.direction && (
-                      <span style={{ fontWeight: 800, color: logItem.direction === 'BUY' ? '#4ADE80' : '#F87171' }}>
+                      <span style={{ fontWeight: 800, color: logItem.direction === 'BUY' ? '#16A34A' : '#DC2626' }}>
                         {logItem.direction} {logItem.units} units @ {logItem.price}
                       </span>
                     )}
-                    <span style={{ color: '#CBD5E1' }}>{logItem.reason}</span>
+                    <span style={{ color: '#475569' }}>{logItem.reason}</span>
                   </div>
                   {logItem.orderId && (
-                    <span style={{ fontSize: '8px', color: '#64748B', flexShrink: 0 }}>ID: {logItem.orderId}</span>
+                    <span style={{ fontSize: '8px', color: '#94A3B8', flexShrink: 0 }}>ID: {logItem.orderId}</span>
                   )}
                 </div>
               );
@@ -1066,9 +1257,23 @@ function TradePageInner() {
         <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
           <span style={{ color: '#6B7280', marginRight: '4px', fontSize: '9px' }}>TF:</span>
           <button onClick={() => setChartModalInstrument({ symbol: inst.symbol, tvSymbol: inst.tvSymbol })} style={{
-            padding: '2px 9px', backgroundColor: '#1C3A5E', color: '#C8F135', border: '1px solid #1C3A5E', fontSize: '9px', fontWeight: 700, cursor: 'pointer', ...mono, marginRight: '8px', display: 'inline-flex', alignItems: 'center', gap: '4px'
+            padding: '2px 9px', backgroundColor: '#1C3A5E', color: '#C8F135', border: '1px solid #1C3A5E', fontSize: '9px', fontWeight: 700, cursor: 'pointer', ...mono, marginRight: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px'
           }}>
             📈 OPEN CHART
+          </button>
+          <button
+            onClick={toggleChartTheme}
+            title={`Switch to ${chartTheme === 'dark' ? 'Light' : 'Dark'} theme`}
+            style={{
+              padding: '2px 9px',
+              backgroundColor: chartTheme === 'light' ? '#F8FAFC' : '#0F172A',
+              color: chartTheme === 'light' ? '#0F172A' : '#C8F135',
+              border: `1px solid ${chartTheme === 'light' ? '#CBD5E1' : '#334155'}`,
+              fontSize: '9px', fontWeight: 700, cursor: 'pointer', ...mono, marginRight: '8px',
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+            }}
+          >
+            {chartTheme === 'dark' ? '☀ LIGHT' : '🌙 DARK'}
           </button>
           {TIMEFRAMES.map(tf => (
             <button key={tf.value} onClick={() => setTimeframe(tf.value)} style={{
@@ -1083,12 +1288,12 @@ function TradePageInner() {
 
       {/* ── Chart + Manual Order Panel ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 330px', gap: '14px', alignItems: 'start' }}>
-        <div style={{ border: '1px solid #E4E4DF', backgroundColor: '#0A0D12', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ backgroundColor: '#0F172A', color: '#F8FAFC', padding: '8px 14px', fontSize: '10px', borderBottom: '1px solid #1E293B', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#94A3B8' }}>TRADINGVIEW ENGINE // <span style={{ color: '#E2E8F0' }}>{inst.tvSymbol}</span></span>
-            <span style={{ color: '#C8F135', fontSize: '9px' }}>RSI · MACD · BB · EMA · VWAP</span>
+        <div style={{ border: `1px solid ${chartTheme === 'light' ? '#E2E8F0' : '#1E293B'}`, backgroundColor: chartTheme === 'light' ? '#FFFFFF' : '#0A0D12', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ backgroundColor: chartTheme === 'light' ? '#F8FAFC' : '#0F172A', color: chartTheme === 'light' ? '#0F172A' : '#F8FAFC', padding: '8px 14px', fontSize: '10px', borderBottom: `1px solid ${chartTheme === 'light' ? '#E2E8F0' : '#1E293B'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: chartTheme === 'light' ? '#64748B' : '#94A3B8' }}>TRADINGVIEW // <span style={{ fontWeight: 700, color: chartTheme === 'light' ? '#0F172A' : '#E2E8F0' }}>{inst.tvSymbol}</span></span>
+            <span style={{ fontSize: '9px', color: chartTheme === 'light' ? '#1C3A5E' : '#C8F135', fontWeight: 600 }}>RSI · MACD · BB · EMA · VWAP</span>
           </div>
-          <TradingViewChart symbol={inst.tvSymbol} interval={timeframe} theme="dark" height={540} showSidebar />
+          <TradingViewChart symbol={inst.tvSymbol} interval={timeframe} theme={chartTheme} height={540} showSidebar />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1144,33 +1349,37 @@ function TradePageInner() {
           </div>
 
           {/* AI Co-Pilot */}
-          <div style={{ border: '1px solid #1E293B', backgroundColor: '#0F172A', color: '#F8FAFC', padding: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1E293B', paddingBottom: '8px', marginBottom: '10px' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: '#C8F135', letterSpacing: '1px' }}>AI CO-PILOT</div>
-              <button onClick={handleAnalyse} disabled={aiLoading} style={{ padding: '3px 8px', backgroundColor: '#1E293B', color: aiLoading ? '#6B7280' : '#C8F135', border: '1px solid #334155', fontSize: '9px', ...mono, cursor: aiLoading ? 'wait' : 'pointer' }}>
+          <div style={{ border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF', padding: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #E2E8F0', paddingBottom: '8px', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#1C3A5E', display: 'inline-block' }} />
+                <span style={{ fontSize: '10px', fontWeight: 800, color: '#0F172A', letterSpacing: '0.8px' }}>AI CO-PILOT</span>
+              </div>
+              <button onClick={handleAnalyse} disabled={aiLoading} style={{ padding: '3px 10px', backgroundColor: aiLoading ? '#F1F5F9' : '#1C3A5E', color: aiLoading ? '#94A3B8' : '#C8F135', border: `1px solid ${aiLoading ? '#E2E8F0' : '#1C3A5E'}`, fontSize: '9px', ...mono, cursor: aiLoading ? 'wait' : 'pointer', fontWeight: 700 }}>
                 {aiLoading ? 'ANALYSING...' : 'RUN ANALYSIS →'}
               </button>
             </div>
-            {aiError && <div style={{ fontSize: '9px', color: '#F87171', marginBottom: '8px' }}>{aiError}</div>}
+            {aiError && <div style={{ fontSize: '9px', color: '#DC2626', marginBottom: '8px', padding: '6px 8px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5' }}>{aiError}</div>}
             {aiAnalysis && aColor && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ padding: '3px 8px', backgroundColor: aColor.bg, color: aColor.text, border: `1px solid ${aColor.border}`, fontSize: '9px', fontWeight: 700 }}>{aiAnalysis.rating}</span>
-                  <span style={{ color: '#94A3B8', fontSize: '9px' }}>R:R {aiAnalysis.rrRatio}</span>
+                  <span style={{ color: '#64748B', fontSize: '9px', fontWeight: 600 }}>R:R {aiAnalysis.rrRatio}</span>
                 </div>
-                <div style={{ backgroundColor: '#0A0D12', border: '1px solid #1E293B', padding: '9px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9px', color: '#CBD5E1' }}>
-                  <div>RSI: <span style={{ color: '#C8F135' }}>{aiAnalysis.rsiContext}</span></div>
-                  <div>MACD: <span style={{ color: '#C8F135' }}>{aiAnalysis.macdContext}</span></div>
-                  <div>BB: <span style={{ color: '#C8F135' }}>{aiAnalysis.bbContext}</span></div>
-                  <div>RISK: <span style={{ color: '#FCA5A5' }}>{aiAnalysis.keyRisk}</span></div>
-                  <div>CONSENSUS: <span style={{ color: '#C8F135' }}>{aiAnalysis.consensusScore}</span></div>
+                <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', padding: '9px', display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '9px', color: '#475569' }}>
+                  <div>RSI: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.rsiContext}</span></div>
+                  <div>MACD: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.macdContext}</span></div>
+                  <div>BB: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.bbContext}</span></div>
+                  <div>RISK: <span style={{ color: '#DC2626', fontWeight: 700 }}>{aiAnalysis.keyRisk}</span></div>
+                  <div>CONSENSUS: <span style={{ color: '#1C3A5E', fontWeight: 700 }}>{aiAnalysis.consensusScore}</span></div>
                 </div>
-                <p style={{ fontSize: '10px', color: '#94A3B8', lineHeight: 1.6, margin: 0, fontStyle: 'italic' }}>"{aiAnalysis.summary}"</p>
+                <p style={{ fontSize: '10px', color: '#64748B', lineHeight: 1.6, margin: 0, fontStyle: 'italic', borderLeft: '2px solid #E2E8F0', paddingLeft: '8px' }}>"{aiAnalysis.summary}"</p>
               </div>
             )}
             {!aiAnalysis && !aiLoading && (
-              <div style={{ fontSize: '10px', color: '#475569', textAlign: 'center', padding: '16px 0', lineHeight: 1.6 }}>
-                Configure trade parameters then click<br />RUN ANALYSIS for AI co-pilot evaluation.
+              <div style={{ fontSize: '10px', color: '#94A3B8', textAlign: 'center', padding: '16px 0', lineHeight: 1.8 }}>
+                Configure trade parameters<br />then click <strong style={{ color: '#1C3A5E' }}>RUN ANALYSIS</strong>.<br />
+                <span style={{ fontSize: '9px' }}>AI co-pilot will evaluate your setup.</span>
               </div>
             )}
           </div>
@@ -1766,22 +1975,33 @@ function TradePageInner() {
           onClick={() => setChartModalInstrument(null)}
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(4px)',
+            backgroundColor: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(6px)',
             zIndex: 9998, display: 'flex', flexDirection: 'column', padding: '24px'
           }}
         >
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              flex: 1, backgroundColor: '#0F172A', border: '1px solid #1E293B',
-              borderRadius: '4px', display: 'flex', flexDirection: 'column', overflow: 'hidden'
+              flex: 1,
+              backgroundColor: chartTheme === 'light' ? '#FFFFFF' : '#0F172A',
+              border: `1px solid ${chartTheme === 'light' ? '#E2E8F0' : '#1E293B'}`,
+              display: 'flex', flexDirection: 'column', overflow: 'hidden'
             }}
           >
-            <div style={{ padding: '12px 20px', backgroundColor: '#1E293B', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '12px 20px',
+              backgroundColor: chartTheme === 'light' ? '#F8FAFC' : '#1E293B',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              borderBottom: `1px solid ${chartTheme === 'light' ? '#E2E8F0' : '#334155'}`
+            }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 800, color: '#C8F135', letterSpacing: '1px', ...mono }}>
-                  📈 LIVE CHART — {chartModalInstrument.symbol}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', color: '#64748B', ...mono }}>LIVE CHART</span>
+                  <span style={{ fontSize: '15px', fontWeight: 800, color: chartTheme === 'light' ? '#0F172A' : '#F8FAFC', letterSpacing: '0.5px', ...mono }}>
+                    {chartModalInstrument.symbol}
+                  </span>
+                </div>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   {TIMEFRAMES.map(tf => (
                     <button
@@ -1789,9 +2009,9 @@ function TradePageInner() {
                       onClick={() => setChartModalTimeframe(tf.value)}
                       style={{
                         padding: '3px 8px',
-                        backgroundColor: chartModalTimeframe === tf.value ? '#1C3A5E' : '#0F172A',
-                        color: chartModalTimeframe === tf.value ? '#C8F135' : '#94A3B8',
-                        border: `1px solid ${chartModalTimeframe === tf.value ? '#C8F135' : '#334155'}`,
+                        backgroundColor: chartModalTimeframe === tf.value ? '#1C3A5E' : (chartTheme === 'light' ? '#FFFFFF' : '#0F172A'),
+                        color: chartModalTimeframe === tf.value ? '#C8F135' : (chartTheme === 'light' ? '#64748B' : '#94A3B8'),
+                        border: `1px solid ${chartModalTimeframe === tf.value ? '#1C3A5E' : (chartTheme === 'light' ? '#E2E8F0' : '#334155')}`,
                         fontSize: '10px', cursor: 'pointer', ...mono
                       }}
                     >
@@ -1800,10 +2020,29 @@ function TradePageInner() {
                   ))}
                 </div>
               </div>
-              <button onClick={() => setChartModalInstrument(null)} style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}>✕</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {/* Theme toggle inside modal */}
+                <button
+                  onClick={toggleChartTheme}
+                  style={{
+                    padding: '4px 10px',
+                    backgroundColor: chartTheme === 'light' ? '#0F172A' : '#F8FAFC',
+                    color: chartTheme === 'light' ? '#C8F135' : '#0F172A',
+                    border: 'none', fontSize: '9px', fontWeight: 700,
+                    cursor: 'pointer', ...mono, letterSpacing: '0.5px'
+                  }}
+                >
+                  {chartTheme === 'dark' ? '☀ LIGHT MODE' : '🌙 DARK MODE'}
+                </button>
+                <button
+                  onClick={() => setChartModalInstrument(null)}
+                  style={{ background: 'none', border: 'none', color: chartTheme === 'light' ? '#64748B' : '#94A3B8', fontSize: '18px', cursor: 'pointer', lineHeight: 1 }}
+                >✕</button>
+              </div>
             </div>
-            <div style={{ flex: 1, backgroundColor: '#0A0D12' }}>
-              <TradingViewChart symbol={chartModalInstrument.tvSymbol} interval={chartModalTimeframe} theme="dark" height={600} showSidebar />
+            {/* Chart */}
+            <div style={{ flex: 1, backgroundColor: chartTheme === 'light' ? '#FFFFFF' : '#0A0D12' }}>
+              <TradingViewChart symbol={chartModalInstrument.tvSymbol} interval={chartModalTimeframe} theme={chartTheme} height={600} showSidebar />
             </div>
           </div>
         </div>

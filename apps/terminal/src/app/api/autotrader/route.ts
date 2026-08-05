@@ -17,6 +17,24 @@ export interface CycleLogItem {
   orderId?: string;
 }
 
+export interface RiskProfile {
+  slPips: number;
+  tpPips: number;
+  useTrailingStop: boolean;
+  trailingDistancePips: number;
+  breakEvenTriggerPips: number;
+  sendTpToOanda: boolean;
+}
+
+export const DEFAULT_RISK_PROFILE: RiskProfile = {
+  slPips: 30,
+  tpPips: 60,
+  useTrailingStop: true,
+  trailingDistancePips: 15,
+  breakEvenTriggerPips: 20,
+  sendTpToOanda: true,
+};
+
 export interface AutotraderState {
   enabled: boolean;
   lastToggled: string;
@@ -31,6 +49,7 @@ export interface AutotraderState {
   lastCycleLogs: CycleLogItem[];
   autoStopAt: string | null;
   autoStopLabel: string | null;
+  riskProfile: RiskProfile;
 }
 
 const DEFAULT_STATE: AutotraderState = {
@@ -47,6 +66,7 @@ const DEFAULT_STATE: AutotraderState = {
   lastCycleLogs: [],
   autoStopAt: null,
   autoStopLabel: null,
+  riskProfile: DEFAULT_RISK_PROFILE,
 };
 
 async function readAutotraderState(): Promise<AutotraderState> {
@@ -126,7 +146,13 @@ export async function POST(request: Request) {
     lotUnits?: number;
     autoStopAt?: string | null;
     autoStopLabel?: string | null;
+    riskProfile?: Partial<RiskProfile>;
   };
+
+  const current = await readAutotraderState();
+  const mergedRiskProfile: RiskProfile = body.riskProfile
+    ? { ...current.riskProfile, ...body.riskProfile }
+    : current.riskProfile;
 
   const next = await writeAutotraderState({
     ...(body.enabled !== undefined && { enabled: body.enabled }),
@@ -134,6 +160,7 @@ export async function POST(request: Request) {
     ...(body.lotUnits !== undefined && { lotUnits: body.lotUnits }),
     ...(body.autoStopAt !== undefined && { autoStopAt: body.autoStopAt }),
     ...(body.autoStopLabel !== undefined && { autoStopLabel: body.autoStopLabel }),
+    riskProfile: mergedRiskProfile,
   });
 
   const response = NextResponse.json({ success: true, ...next });

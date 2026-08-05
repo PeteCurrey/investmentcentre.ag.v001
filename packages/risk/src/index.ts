@@ -32,6 +32,9 @@ export interface OrderIntent {
   entryPrice: Price;
   stopLossPrice: Price;
   takeProfitPrice?: Price;
+  /** When set, a trailing stop of this pip distance is submitted to the broker
+   *  instead of a fixed stopLossOnFill. Format: decimal string e.g. "0.0015" */
+  trailingStopDistance?: string;
   requestedAt: string;
 }
 
