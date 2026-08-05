@@ -753,7 +753,7 @@ function TradePageInner() {
       {/* ── Auto-Trading Control Banner & Settings Panel ── */}
       <div style={{
         border: autotrader?.enabled ? '2px solid #22C55E' : '1px solid #E4E4DF',
-        backgroundColor: autotrader?.enabled ? '#0F172A' : '#F7F7F5',
+        backgroundColor: autotrader?.enabled ? '#F0FDF4' : '#F7F7F5',
         transition: 'all 0.3s ease',
       }}>
         {/* Main control row */}
@@ -768,26 +768,26 @@ function TradePageInner() {
                 boxShadow: autotrader?.enabled ? '0 0 12px #22C55E, 0 0 24px rgba(34,197,94,0.5)' : 'none',
                 animation: autotrader?.enabled ? 'pulse 2s infinite' : 'none',
               }} />
-              <span style={{ fontSize: '13px', fontWeight: 800, color: autotrader?.enabled ? '#4ADE80' : '#6B7280', letterSpacing: '1px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 800, color: autotrader?.enabled ? '#16A34A' : '#6B7280', letterSpacing: '1px' }}>
                 AUTO-TRADING MODE: {autotrader?.enabled ? 'ON (ACTIVE)' : 'OFF (PAUSED)'}
               </span>
             </div>
 
             {autotrader?.enabled && (
-              <div style={{ fontSize: '10px', color: '#94A3B8', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <div style={{ fontSize: '10px', color: '#475569', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <div>
                   <span style={{ color: '#64748B' }}>ACTIVE PAIRS: </span>
-                  <span style={{ color: '#E2E8F0', fontWeight: 700 }}>
+                  <span style={{ color: '#0F172A', fontWeight: 700 }}>
                     {(autotrader.selectedInstruments || ['GBP/USD']).join(', ')}
                   </span>
                   <span style={{ color: '#64748B' }}> · </span>
                   <span style={{ color: '#64748B' }}>LOT SIZE: </span>
-                  <span style={{ color: '#C8F135', fontWeight: 700 }}>{autotrader.lotUnits || 100} units per trade</span>
+                  <span style={{ color: '#047857', fontWeight: 700 }}>{autotrader.lotUnits || 100} units per trade</span>
                 </div>
                 {autotrader.lastSignal && (
                   <div>
                     <span style={{ color: '#64748B' }}>LAST TRADE: </span>
-                    <span style={{ color: autotrader.lastDirection === 'BUY' ? '#4ADE80' : '#F87171', fontWeight: 700 }}>
+                    <span style={{ color: autotrader.lastDirection === 'BUY' ? '#16A34A' : '#DC2626', fontWeight: 700 }}>
                       {autotrader.lastDirection} {autotrader.lastInstrument} @ {autotrader.lastPrice}
                     </span>
                     <span style={{ color: '#64748B' }}> ({autotrader.lastSignal})</span>
@@ -796,7 +796,7 @@ function TradePageInner() {
                 {autotrader.autoStopLabel && stopMsRemaining !== null && stopMsRemaining > 0 && (
                   <div>
                     <span style={{ color: '#64748B' }}>SCHEDULED STOP: </span>
-                    <span style={{ color: '#FCD34D' }}>{autotrader.autoStopLabel}</span>
+                    <span style={{ color: '#D97706' }}>{autotrader.autoStopLabel}</span>
                     <span style={{ color: '#64748B' }}> (in {formatCountdown(stopMsRemaining)})</span>
                   </div>
                 )}
