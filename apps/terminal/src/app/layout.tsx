@@ -1,13 +1,11 @@
 import React from 'react';
-import { DM_Mono } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import './globals.css';
 
-const dmMono = DM_Mono({
-  weight: ['300', '400', '500'],
-  style: ['normal', 'italic'],
+const inter = Inter({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-dm-mono',
+  variable: '--font-inter',
 });
 
 export const metadata = {
@@ -21,8 +19,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={dmMono.variable}>
-      <body className={dmMono.className}>
+    <html lang="en" className={inter.variable}>
+      <body className={inter.className}>
         {children}
       </body>
     </html>
