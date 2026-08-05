@@ -28,6 +28,17 @@ export default function ConsoleLayout({
   const [feedStatus, setFeedStatus] = useState<'loading' | 'connected' | 'error'>('loading');
   const [tickerPrices, setTickerPrices] = useState<{ symbol: string; price: string; change: string }[]>([]);
 
+  type AccountSummary = {
+    balance: string;
+    nav: string;
+    unrealizedPL: string;
+    pnlPositive: boolean;
+    openTradesCount: number;
+    currency: string;
+  };
+  const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [autoEnabled, setAutoEnabled] = useState(false);
+
   useEffect(() => {
     const fetchPrices = async () => {
       try {
@@ -51,6 +62,31 @@ export default function ConsoleLayout({
     };
     fetchPrices();
     const interval = setInterval(fetchPrices, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const fetchAccount = async () => {
+      try {
+        const [posRes, atRes] = await Promise.all([
+          fetch('/api/oanda-positions'),
+          fetch('/api/autotrader'),
+        ]);
+        if (posRes.ok) {
+          const data = await posRes.json();
+          if (data.account) setAccount(data.account);
+        }
+        if (atRes.ok) {
+          const atData = await atRes.json();
+          const cookieEnabled = typeof window !== 'undefined'
+            ? localStorage.getItem('meridian_autotrader_enabled') === 'true'
+            : false;
+          setAutoEnabled(atData.enabled || cookieEnabled);
+        }
+      } catch {}
+    };
+    fetchAccount();
+    const interval = setInterval(fetchAccount, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -147,6 +183,81 @@ export default function ConsoleLayout({
         {feedStatus === 'connected' && (
           <span style={{ color: '#22C55E', fontWeight: 700, flexShrink: 0, marginLeft: '8px' }}>● LIVE</span>
         )}
+      </div>
+
+      {/* ── Persistent Account Summary Bar ── */}
+      <div style={{
+        backgroundColor: '#0F172A',
+        borderBottom: '1px solid #1E293B',
+        padding: '0 24px',
+        height: '44px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0',
+        fontFamily: '"DM Mono", monospace',
+        fontSize: '11px',
+        flexShrink: 0,
+      }}>
+        {/* BALANCE */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', padding: '0 20px 0 0', borderRight: '1px solid #1E293B' }}>
+          <span style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.8px', fontWeight: 700 }}>BALANCE</span>
+          <span style={{ color: '#F8FAFC', fontWeight: 700, fontSize: '12px' }}>
+            {account ? `${account.currency} ${parseFloat(account.balance).toLocaleString('en-GB', { minimumFractionDigits: 2 })}` : '—'}
+          </span>
+        </div>
+
+        {/* NAV */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', padding: '0 20px', borderRight: '1px solid #1E293B' }}>
+          <span style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.8px', fontWeight: 700 }}>NET ASSET VALUE</span>
+          <span style={{ color: '#F8FAFC', fontWeight: 700, fontSize: '12px' }}>
+            {account ? `${account.currency} ${parseFloat(account.nav).toLocaleString('en-GB', { minimumFractionDigits: 2 })}` : '—'}
+          </span>
+        </div>
+
+        {/* UNREALIZED P&L */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', padding: '0 20px', borderRight: '1px solid #1E293B' }}>
+          <span style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.8px', fontWeight: 700 }}>UNREALIZED P&amp;L</span>
+          <span style={{ color: account ? (account.pnlPositive ? '#4ADE80' : '#F87171') : '#64748B', fontWeight: 700, fontSize: '12px' }}>
+            {account
+              ? `${account.pnlPositive ? '+' : '-'}${account.currency} ${Math.abs(parseFloat(account.unrealizedPL)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}`
+              : '—'}
+          </span>
+        </div>
+
+        {/* OPEN TRADES */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', padding: '0 20px', borderRight: '1px solid #1E293B' }}>
+          <span style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.8px', fontWeight: 700 }}>OPEN TRADES</span>
+          <span style={{ color: '#F8FAFC', fontWeight: 700, fontSize: '12px' }}>
+            {account ? account.openTradesCount : '—'}
+          </span>
+        </div>
+
+        {/* ACCOUNT TYPE */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', padding: '0 20px', borderRight: '1px solid #1E293B' }}>
+          <span style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.8px', fontWeight: 700 }}>ACCOUNT</span>
+          <span style={{ color: '#C8F135', fontWeight: 700, fontSize: '11px', letterSpacing: '1px' }}>
+            {(process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT || 'PRACTICE').toUpperCase()}
+          </span>
+        </div>
+
+        {/* AUTO-TRADING STATUS */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', padding: '0 20px', borderRight: '1px solid #1E293B' }}>
+          <span style={{ fontSize: '9px', color: '#475569', letterSpacing: '0.8px', fontWeight: 700 }}>AUTO-TRADING</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '11px', color: autoEnabled ? '#4ADE80' : '#94A3B8' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: autoEnabled ? '#4ADE80' : '#475569', display: 'inline-block', boxShadow: autoEnabled ? '0 0 8px rgba(74,222,128,0.7)' : 'none' }} />
+            {autoEnabled ? 'ACTIVE' : 'INACTIVE'}
+          </span>
+        </div>
+
+        {/* Last updated */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {account ? (
+            <span style={{ fontSize: '9px', color: '#334155', letterSpacing: '0.5px' }}>UPDATED {new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          ) : (
+            <span style={{ fontSize: '9px', color: '#475569' }}>CONNECTING TO OANDA...</span>
+          )}
+          <a href="/trade" style={{ fontSize: '9px', color: '#C8F135', fontWeight: 700, textDecoration: 'none', letterSpacing: '0.5px', padding: '3px 8px', border: '1px solid #C8F135', borderRadius: '2px' }}>→ TRADE DESK</a>
+        </div>
       </div>
 
       {/* Main Console Body */}
