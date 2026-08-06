@@ -105,7 +105,7 @@ async function checkFredBlackoutStatus(
   // FRED found NO active US release in window.
   // Evaluate currency coverage gap: FRED covers US macro events ONLY.
   // If the instrument includes non-USD legs (e.g. GBP in GBP/USD, EUR in EUR/GBP),
-  // FRED has no coverage for those legs $\rightarrow$ return UNKNOWN.
+  // FRED has no coverage for those legs -> return UNKNOWN.
   const uncoveredCurrencies = targetCurrencies.filter(
     (c) => !USD_CORRELATED_CURRENCIES.has(c.toUpperCase())
   );
@@ -119,7 +119,7 @@ async function checkFredBlackoutStatus(
     return 'UNKNOWN';
   }
 
-  // All legs are USD-correlated (e.g. XAU/USD) and no US event is active $\rightarrow$ CLEAR
+  // All legs are USD-correlated (e.g. XAU/USD, SPX500) and no US event is active -> CLEAR
   return 'CLEAR';
 }
 

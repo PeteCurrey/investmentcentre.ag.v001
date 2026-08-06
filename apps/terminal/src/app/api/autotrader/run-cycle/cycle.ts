@@ -12,7 +12,7 @@
  */
 
 import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
-import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize } from '@meridian/risk';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize, checkNewsBlackoutStatus } from '@meridian/risk';
 import { generateSignal } from '@meridian/signals';
 import { createPrice, moneyToString } from '@meridian/core';
 import {
@@ -447,10 +447,17 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       const pricingDetails = oandaId ? oandaPricingMap[oandaId] : undefined;
       const currentSpreadPips = pricingDetails?.spreadPips;
 
+      // Resolve per-instrument news blackout status
+      const instParts = displaySymbol.split('/');
+      const instCurrencies = instParts.length === 2 ? instParts : [displaySymbol];
+      const instNewsStatus = await checkNewsBlackoutStatus(instCurrencies);
+
       const accountRiskState = {
         ...baseAccountRiskState,
         instrument: displaySymbol,
         currentSpreadPips,
+        isNewsBlackoutActive: instNewsStatus !== 'CLEAR',
+        newsStatus: instNewsStatus,
       };
 
       // ── Stop distance sanity check ─────────────────────────────────────────
