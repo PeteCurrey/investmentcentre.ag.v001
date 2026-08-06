@@ -4,10 +4,14 @@ import {
   writeAutotraderConfig,
   AutotraderConfig,
   RiskProfileConfig,
+  requestTransition,
+  AutotraderMode,
 } from '@meridian/core';
-import { requestTransition, AutotraderMode } from '@meridian/core';
+import { OandaBrokerAdapter, getOandaApiKey } from '@meridian/execute';
 import { requireSession } from '../../../lib/auth';
 import { getInstrument } from '../../../lib/instruments';
+
+const MAX_SELECTED_INSTRUMENTS = 10;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 // Re-exported so the UI can import from a single location.
@@ -50,14 +54,15 @@ export async function GET() {
       const updated = await writeAutotraderConfig({
         autoStopAt: null,
         autoStopLabel: null,
+        enabled: false,
         updatedBy: 'system:auto-stop',
       });
       const finalConfig = updated ?? config;
-      return NextResponse.json({ success: true, ...finalConfig, enabled: finalConfig.mode !== 'OBSERVE' });
+      return NextResponse.json({ success: true, ...finalConfig });
     }
   }
 
-  return NextResponse.json({ success: true, ...config, enabled: config.mode !== 'OBSERVE' });
+  return NextResponse.json({ success: true, ...config });
 }
 
 // ─── POST /api/autotrader ──────────────────────────────────────────────────────
@@ -69,7 +74,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  const body = await request.json() as {
+  const body = (await request.json()) as {
     // Mode transition — if present, takes priority over all other fields.
     requestTransition?: {
       from: AutotraderMode;
@@ -78,6 +83,7 @@ export async function POST(request: Request) {
     };
     // Config updates
     selectedInstruments?: string[];
+    watchlist?: string[];
     lotUnits?: number;
     autoStopAt?: string | null;
     autoStopLabel?: string | null;
@@ -99,29 +105,87 @@ export async function POST(request: Request) {
     }
 
     const updated = await readAutotraderConfig();
-    return NextResponse.json({ success: true, ...(updated ?? {}), enabled: updated ? updated.mode !== 'OBSERVE' : false });
+    return NextResponse.json({ success: true, ...(updated ?? {}) });
   }
 
   // Handle config-only update (no mode change).
   if (body.selectedInstruments !== undefined) {
-    const invalidList = body.selectedInstruments.filter(sym => {
-      const inst = getInstrument(sym);
-      return !inst || !inst.oandaTradeable;
-    });
-    if (invalidList.length > 0) {
+    if (body.selectedInstruments.length > MAX_SELECTED_INSTRUMENTS) {
       return NextResponse.json(
         {
           success: false,
-          error: `INVALID_INSTRUMENTS: The following instruments are not tradeable for automated execution: [${invalidList.join(', ')}].`,
+          error: `MAX_INSTRUMENTS_EXCEEDED: Maximum ${MAX_SELECTED_INSTRUMENTS} instruments can be selected for autotrader evaluation. Selected ${body.selectedInstruments.length}.`,
         },
         { status: 400 }
       );
+    }
+
+    // Rule 2: Explicit pipValue and digits check across universe
+    const missingPipOrDigits = body.selectedInstruments.filter(sym => {
+      const inst = getInstrument(sym);
+      return !inst || !inst.pipValue || inst.pipValue <= 0 || inst.digits === undefined || inst.digits < 0;
+    });
+
+    if (missingPipOrDigits.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `INVALID_INSTRUMENTS: The following instruments lack explicit pipValue or digits definitions: [${missingPipOrDigits.join(', ')}].`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Rule 1: Validate against broker's account instruments if credentials exist
+    const apiKey = getOandaApiKey();
+    const accountId = process.env.OANDA_ACCOUNT_ID;
+    const env = (process.env.OANDA_ENVIRONMENT as 'practice' | 'live') || 'practice';
+
+    if (apiKey && accountId) {
+      const adapter = new OandaBrokerAdapter({ apiKey, accountId, environment: env });
+      const instRes = await adapter.getAccountInstruments();
+      if (instRes.success && instRes.value) {
+        const accountInstruments = instRes.value;
+        const nonBrokerTradeable = body.selectedInstruments.filter(sym => {
+          const inst = getInstrument(sym);
+          const oandaId = inst?.oandaId || sym.replace('/', '_');
+          return !accountInstruments.has(oandaId);
+        });
+
+        if (nonBrokerTradeable.length > 0) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `NOT_BROKER_TRADEABLE: The following instruments are not offered for trading on this OANDA account: [${nonBrokerTradeable.join(', ')}].`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+    } else {
+      // Fallback check against static universe flag if OANDA credentials not set
+      const invalidList = body.selectedInstruments.filter(sym => {
+        const inst = getInstrument(sym);
+        return !inst || !inst.oandaTradeable;
+      });
+      if (invalidList.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `INVALID_INSTRUMENTS: The following instruments are not tradeable for automated execution: [${invalidList.join(', ')}].`,
+          },
+          { status: 400 }
+        );
+      }
     }
   }
 
   const updated = await writeAutotraderConfig({
     ...(body.selectedInstruments !== undefined && {
       selectedInstruments: body.selectedInstruments,
+    }),
+    ...(body.watchlist !== undefined && {
+      watchlist: body.watchlist,
     }),
     ...(body.lotUnits !== undefined && { lotUnits: body.lotUnits }),
     ...(body.autoStopAt !== undefined && { autoStopAt: body.autoStopAt }),
@@ -137,5 +201,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ success: true, ...updated, enabled: updated.mode !== 'OBSERVE' });
+  return NextResponse.json({ success: true, ...updated });
 }

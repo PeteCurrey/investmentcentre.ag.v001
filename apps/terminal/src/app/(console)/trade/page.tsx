@@ -39,11 +39,12 @@ interface CycleLogItem {
 }
 interface AutotraderState {
   enabled: boolean; mode?: 'OBSERVE' | 'PAPER' | 'LIVE'; lastToggled: string; cycleCount: number;
-  selectedInstruments: string[]; lotUnits: number;
+  selectedInstruments: string[]; watchlist?: string[]; lotUnits: number;
   lastSignal: string | null; lastInstrument: string | null;
   lastDirection: string | null; lastPrice: string | null;
   lastCycleAt: string | null; lastCycleLogs: CycleLogItem[];
   autoStopAt: string | null; autoStopLabel: string | null;
+  riskProfileOverrides?: any;
 }
 interface AiAnalysis {
   rating: string; rrRatio: string; momentumContext: string;
@@ -489,7 +490,7 @@ function TradePageInner() {
       });
       const data = await res.json();
       if (data.success) {
-        setAutotrader((prev: any) => ({ ...prev, ...data.config, enabled: data.mode !== 'OBSERVE', mode: data.mode }));
+        setAutotrader((prev: any) => ({ ...prev, ...data.config, mode: data.mode }));
       } else {
         alert(`Mode transition failed: ${data.error}`);
       }
@@ -519,6 +520,59 @@ function TradePageInner() {
     setShowLiveConfirmModal(false);
     setPendingLiveFromMode(null);
   }, []);
+
+  // ── Algo Trading Kill Switch Toggle ──────────────────────────────────────
+  const handleToggleAlgoEnabled = useCallback(async () => {
+    if (!autotrader || autoToggling) return;
+    const currentEnabled = Boolean(autotrader.enabled);
+    setAutoToggling(true);
+    try {
+      const res = await fetch('/api/autotrader/toggle-enabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !currentEnabled }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAutotrader((prev: any) => ({ ...prev, ...data.config, enabled: data.enabled }));
+      } else {
+        alert(`Algo Trading toggle failed: ${data.error}`);
+      }
+    } catch (e: any) {
+      alert(`Network error toggling Algo Trading: ${e.message}`);
+    }
+    setAutoToggling(false);
+  }, [autotrader, autoToggling]);
+
+  // ── Audited Risk Profile Modifications ──────────────────────────────────
+  const [riskFieldReason, setRiskFieldReason] = useState<string>('');
+  const [savingRiskProfileAudit, setSavingRiskProfileAudit] = useState<boolean>(false);
+
+  const handleSaveAuditedRiskProfile = useCallback(async (field: string, value: number) => {
+    if (!riskFieldReason.trim()) {
+      alert('REASON REQUIRED: A mandatory justification reason must be provided before changing Risk Profile limits.');
+      return;
+    }
+    setSavingRiskProfileAudit(true);
+    try {
+      const res = await fetch('/api/autotrader/risk-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field, value, reason: riskFieldReason.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAutotrader((prev: any) => ({ ...prev, ...data.config }));
+        setRiskFieldReason('');
+        alert(`SUCCESS: ${field} set to ${value}. Change recorded in meridian.risk_profile_changes.`);
+      } else {
+        alert(`Risk Profile modification failed: ${data.error}`);
+      }
+    } catch (e: any) {
+      alert(`Network error saving Risk Profile: ${e.message}`);
+    }
+    setSavingRiskProfileAudit(false);
+  }, [riskFieldReason]);
 
   // Toggle autotrader instrument in the autotrader active set only (not watchlist)
   const handleToggleInstrument = useCallback(async (symbolToToggle: string, type: 'autotrader' | 'watchlist') => {
@@ -837,14 +891,38 @@ function TradePageInner() {
             )}
 
             {!autotrader?.enabled && (
-              <div style={{ fontSize: '10px', color: '#6B7280', paddingLeft: '20px' }}>
-                Auto-trading is currently <strong>OFF</strong>. Use the mode controls to start PAPER or LIVE trading.
+              <div style={{
+                fontSize: '10px', color: '#92400E', padding: '6px 12px',
+                backgroundColor: '#FEF3C7', border: '1px solid #F59E0B', borderRadius: '4px',
+                display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, ...mono
+              }}>
+                <span>⚠️ ALGO TRADING IS OFF</span>
+                <span style={{ fontWeight: 500 }}>— Engine is in mode <strong>{autotrader?.mode ?? 'OBSERVE'}</strong>, but trade evaluation is suspended. Toggle Algo Trading to ON to resume.</span>
               </div>
             )}
           </div>
 
-          {/* Controls: Explicit per-state action buttons */}
+          {/* Controls: Algo Trading Switch + Explicit per-state mode action buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, flexWrap: 'wrap' }}>
+            {/* Dedicated Algo Trading Kill Switch Button */}
+            <button
+              id="algo-trading-switch"
+              onClick={handleToggleAlgoEnabled}
+              disabled={autoToggling || !autotrader}
+              style={{
+                padding: '11px 18px',
+                backgroundColor: autotrader?.enabled ? '#16A34A' : '#DC2626',
+                color: '#FFFFFF', border: 'none',
+                cursor: autoToggling ? 'wait' : 'pointer',
+                fontSize: '11px', fontWeight: 800, ...mono,
+                letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                transition: 'all 0.2s ease', minWidth: '160px',
+                boxShadow: autotrader?.enabled ? '0 0 14px rgba(22,163,74,0.5)' : '0 0 14px rgba(220,38,38,0.5)',
+              }}
+            >
+              {autoToggling ? 'UPDATING...' : autotrader?.enabled ? '⚡ ALGO TRADING: ON' : '⏹ ALGO TRADING: OFF'}
+            </button>
+
             {autotrader?.enabled && (
               <div style={{ textAlign: 'center', minWidth: '70px' }}>
                 <div style={{ fontSize: '20px', fontWeight: 800, color: '#4ADE80', lineHeight: 1 }}>{refreshCountdown}s</div>
@@ -1114,6 +1192,212 @@ function TradePageInner() {
                     <span style={{ color: '#64748B', ...mono }}>pips profit</span>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* ── Section 2: Audited Risk Profile Limits ── */}
+            <div style={{ borderTop: '2px solid #D97706', paddingTop: '16px', marginTop: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 800, color: '#D97706', letterSpacing: '0.8px' }}>
+                    ⚠️ RISK PROFILE LIMITS (AUDITED IN meridian.risk_profile_changes)
+                  </div>
+                  <div style={{ fontSize: '9px', color: autotrader?.enabled ? '#94A3B8' : '#64748B', marginTop: '2px' }}>
+                    Modifications to these core risk parameters are permanently recorded with mandatory reason, timestamp, and actor.
+                  </div>
+                </div>
+                <div style={{ fontSize: '9px', color: '#D97706', fontWeight: 700, ...mono }}>
+                  AUDIT LOGGED
+                </div>
+              </div>
+
+              {/* Grid of 6 Risk Profile Limits */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '12px' }}>
+                {/* 1. maxConcurrentPositions */}
+                <div style={{ padding: '10px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#92400E', marginBottom: '4px' }}>MAX CONCURRENT POSITIONS</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '8px', color: '#64748B' }}>Hard Ceiling: 20</span>
+                    <button
+                      onClick={() => {
+                        const current = autotrader?.riskProfileOverrides?.maxConcurrentPositions ?? 5;
+                        const valStr = prompt('Enter new Max Concurrent Positions (1-20):', String(current));
+                        if (!valStr) return;
+                        const val = parseInt(valStr, 10);
+                        if (isNaN(val) || val < 1 || val > 20) {
+                          alert('Invalid value. Must be an integer between 1 and 20.');
+                          return;
+                        }
+                        handleSaveAuditedRiskProfile('maxConcurrentPositions', val);
+                      }}
+                      disabled={savingRiskProfileAudit}
+                      style={{
+                        padding: '3px 8px', backgroundColor: '#D97706', color: '#FFF',
+                        border: 'none', borderRadius: '3px', fontSize: '10px', fontWeight: 700,
+                        cursor: 'pointer', ...mono
+                      }}
+                    >
+                      {autotrader?.riskProfileOverrides?.maxConcurrentPositions ?? 5} ✎
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. maxRiskPerTradePct */}
+                <div style={{ padding: '10px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#92400E', marginBottom: '4px' }}>MAX RISK PER TRADE (%)</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '8px', color: '#64748B' }}>Ceiling: 1.0%</span>
+                    <button
+                      onClick={() => {
+                        const current = autotrader?.riskProfileOverrides?.maxRiskPerTradePct ?? 1.0;
+                        const valStr = prompt('Enter new Max Risk Per Trade % (0.1 - 1.0):', String(current));
+                        if (!valStr) return;
+                        const val = parseFloat(valStr);
+                        if (isNaN(val) || val <= 0 || val > 1.0) {
+                          alert('Invalid value. Must be > 0 and <= 1.0%.');
+                          return;
+                        }
+                        handleSaveAuditedRiskProfile('maxRiskPerTradePct', val);
+                      }}
+                      disabled={savingRiskProfileAudit}
+                      style={{
+                        padding: '3px 8px', backgroundColor: '#D97706', color: '#FFF',
+                        border: 'none', borderRadius: '3px', fontSize: '10px', fontWeight: 700,
+                        cursor: 'pointer', ...mono
+                      }}
+                    >
+                      {autotrader?.riskProfileOverrides?.maxRiskPerTradePct ?? 1.0}% ✎
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. maxDailyLossPct */}
+                <div style={{ padding: '10px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#92400E', marginBottom: '4px' }}>MAX DAILY LOSS (%)</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '8px', color: '#64748B' }}>Ceiling: 5.0%</span>
+                    <button
+                      onClick={() => {
+                        const current = autotrader?.riskProfileOverrides?.maxDailyLossPct ?? 5.0;
+                        const valStr = prompt('Enter new Max Daily Loss % (0.5 - 5.0):', String(current));
+                        if (!valStr) return;
+                        const val = parseFloat(valStr);
+                        if (isNaN(val) || val <= 0 || val > 5.0) {
+                          alert('Invalid value. Must be > 0 and <= 5.0%.');
+                          return;
+                        }
+                        handleSaveAuditedRiskProfile('maxDailyLossPct', val);
+                      }}
+                      disabled={savingRiskProfileAudit}
+                      style={{
+                        padding: '3px 8px', backgroundColor: '#D97706', color: '#FFF',
+                        border: 'none', borderRadius: '3px', fontSize: '10px', fontWeight: 700,
+                        cursor: 'pointer', ...mono
+                      }}
+                    >
+                      {autotrader?.riskProfileOverrides?.maxDailyLossPct ?? 5.0}% ✎
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4. maxTotalDrawdownPct */}
+                <div style={{ padding: '10px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#92400E', marginBottom: '4px' }}>MAX TOTAL DRAWDOWN (%)</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '8px', color: '#64748B' }}>Ceiling: 10.0%</span>
+                    <button
+                      onClick={() => {
+                        const current = autotrader?.riskProfileOverrides?.maxTotalDrawdownPct ?? 10.0;
+                        const valStr = prompt('Enter new Max Total Drawdown % (1.0 - 10.0):', String(current));
+                        if (!valStr) return;
+                        const val = parseFloat(valStr);
+                        if (isNaN(val) || val <= 0 || val > 10.0) {
+                          alert('Invalid value. Must be > 0 and <= 10.0%.');
+                          return;
+                        }
+                        handleSaveAuditedRiskProfile('maxTotalDrawdownPct', val);
+                      }}
+                      disabled={savingRiskProfileAudit}
+                      style={{
+                        padding: '3px 8px', backgroundColor: '#D97706', color: '#FFF',
+                        border: 'none', borderRadius: '3px', fontSize: '10px', fontWeight: 700,
+                        cursor: 'pointer', ...mono
+                      }}
+                    >
+                      {autotrader?.riskProfileOverrides?.maxTotalDrawdownPct ?? 10.0}% ✎
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5. maxAggregateRiskPct */}
+                <div style={{ padding: '10px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#92400E', marginBottom: '4px' }}>MAX AGGREGATE RISK (%)</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '8px', color: '#64748B' }}>Ceiling: 5.0%</span>
+                    <button
+                      onClick={() => {
+                        const current = autotrader?.riskProfileOverrides?.maxAggregateRiskPct ?? 5.0;
+                        const valStr = prompt('Enter new Max Aggregate Risk % (0.5 - 5.0):', String(current));
+                        if (!valStr) return;
+                        const val = parseFloat(valStr);
+                        if (isNaN(val) || val <= 0 || val > 5.0) {
+                          alert('Invalid value. Must be > 0 and <= 5.0%.');
+                          return;
+                        }
+                        handleSaveAuditedRiskProfile('maxAggregateRiskPct', val);
+                      }}
+                      disabled={savingRiskProfileAudit}
+                      style={{
+                        padding: '3px 8px', backgroundColor: '#D97706', color: '#FFF',
+                        border: 'none', borderRadius: '3px', fontSize: '10px', fontWeight: 700,
+                        cursor: 'pointer', ...mono
+                      }}
+                    >
+                      {autotrader?.riskProfileOverrides?.maxAggregateRiskPct ?? 5.0}% ✎
+                    </button>
+                  </div>
+                </div>
+
+                {/* 6. maxCorrelatedExposure */}
+                <div style={{ padding: '10px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#92400E', marginBottom: '4px' }}>MAX CORRELATED EXPOSURE</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '8px', color: '#64748B' }}>Ceiling: 10</span>
+                    <button
+                      onClick={() => {
+                        const current = autotrader?.riskProfileOverrides?.maxCorrelatedExposure ?? 2;
+                        const valStr = prompt('Enter new Max Correlated Exposure (1 - 10):', String(current));
+                        if (!valStr) return;
+                        const val = parseInt(valStr, 10);
+                        if (isNaN(val) || val < 1 || val > 10) {
+                          alert('Invalid value. Must be an integer between 1 and 10.');
+                          return;
+                        }
+                        handleSaveAuditedRiskProfile('maxCorrelatedExposure', val);
+                      }}
+                      disabled={savingRiskProfileAudit}
+                      style={{
+                        padding: '3px 8px', backgroundColor: '#D97706', color: '#FFF',
+                        border: 'none', borderRadius: '3px', fontSize: '10px', fontWeight: 700,
+                        cursor: 'pointer', ...mono
+                      }}
+                    >
+                      {autotrader?.riskProfileOverrides?.maxCorrelatedExposure ?? 2} ✎
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mandatory Reason Input Bar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: autotrader?.enabled ? '#1E293B' : '#FFFBEB', padding: '8px 12px', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, color: '#92400E', whiteSpace: 'nowrap' }}>Mandatory Audit Reason:</span>
+                <input
+                  type="text"
+                  placeholder="Type justification reason before clicking any ✎ button above..."
+                  value={riskFieldReason}
+                  onChange={e => setRiskFieldReason(e.target.value)}
+                  style={{ flex: 1, padding: '4px 8px', fontSize: '10px', border: '1px solid #CBD5E1', borderRadius: '3px', ...mono }}
+                />
               </div>
             </div>
           </div>

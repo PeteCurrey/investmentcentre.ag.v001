@@ -32,8 +32,11 @@ export async function POST() {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? (e.stack ?? msg) : msg;
+    // cycle.ts top-level catch already wrote the cycle_log FAILED row and
+    // logged to structured output. This is a belt-and-suspenders fallback.
     return NextResponse.json(
-      { success: false, error: msg },
+      { success: false, error: msg, stack },
       { status: 500 }
     );
   }

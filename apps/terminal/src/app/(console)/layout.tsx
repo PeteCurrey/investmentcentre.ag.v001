@@ -38,32 +38,17 @@ export default function ConsoleLayout({
   };
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autotraderMode, setAutotraderMode] = useState<string>('OBSERVE');
+  const [togglingKillSwitch, setTogglingKillSwitch] = useState(false);
 
-  useEffect(() => {
-    const fetchPrices = async () => {
-      try {
-        const res = await fetch('/api/prices');
-        const data = await res.json();
-        if (data?.prices && Object.keys(data.prices).length > 0) {
-          setFeedStatus('connected');
-          setTickerPrices(
-            Object.entries(data.prices).map(([symbol, v]: [string, any]) => ({
-              symbol,
-              price: v.price,
-              change: v.change,
-            }))
-          );
-        } else {
-          setFeedStatus('error');
-        }
-      } catch {
-        setFeedStatus('error');
-      }
-    };
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // Cycle health indicator
+  type CycleHealthStatus = 'OK' | 'STALE' | 'CRITICAL' | 'FAILED' | 'UNKNOWN';
+  const [cycleHealth, setCycleHealth] = useState<{
+    status: CycleHealthStatus;
+    secondsSinceSuccess: number | null;
+    lastCycleFailed: boolean;
+    lastReason: string | null;
+  }>({ status: 'UNKNOWN', secondsSinceSuccess: null, lastCycleFailed: false, lastReason: null });
 
   useEffect(() => {
     const fetchAccount = async () => {
@@ -78,7 +63,8 @@ export default function ConsoleLayout({
         }
         if (atRes.ok) {
           const atData = await atRes.json();
-          setAutoEnabled(atData.mode ? atData.mode !== 'OBSERVE' : Boolean(atData.enabled));
+          setAutoEnabled(Boolean(atData.enabled));
+          if (atData.mode) setAutotraderMode(atData.mode);
         }
       } catch {}
     };
@@ -86,6 +72,49 @@ export default function ConsoleLayout({
     const interval = setInterval(fetchAccount, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const res = await fetch('/api/autotrader/health');
+        if (res.ok) {
+          const data = await res.json();
+          setCycleHealth({
+            status: data.status ?? 'UNKNOWN',
+            secondsSinceSuccess: data.secondsSinceSuccess ?? null,
+            lastCycleFailed: Boolean(data.lastCycleFailed),
+            lastReason: data.lastReason ?? null,
+          });
+        }
+      } catch {}
+    };
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleToggleKillSwitch = async () => {
+    if (togglingKillSwitch) return;
+    setTogglingKillSwitch(true);
+    const targetState = !autoEnabled;
+    try {
+      const res = await fetch('/api/autotrader/toggle-enabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: targetState }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAutoEnabled(data.enabled);
+        if (data.mode) setAutotraderMode(data.mode);
+      } else {
+        alert(`Kill switch toggle failed: ${data.error}`);
+      }
+    } catch (e: any) {
+      alert(`Network error toggling kill switch: ${e.message}`);
+    }
+    setTogglingKillSwitch(false);
+  };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column', backgroundColor: '#FFFFFF', color: '#0F172A' }}>
@@ -108,38 +137,74 @@ export default function ConsoleLayout({
           {isTier4Active ? (
             <span style={{ color: '#15803D', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '12px', fontFamily: '"DM Mono", monospace' }}>
               <span style={{ width: '7px', height: '7px', backgroundColor: '#22C55E', borderRadius: '50%', display: 'inline-block', boxShadow: '0 0 6px rgba(34, 197, 94, 0.5)' }}></span>
-              SYSTEM ACTIVE [EXECUTE MODE]
+              SYSTEM ACTIVE [{autotraderMode} MODE]
             </span>
           ) : (
             <span style={{ color: '#64748B', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontFamily: '"DM Mono", monospace' }}>
               <span style={{ width: '6px', height: '6px', backgroundColor: '#94A3B8', display: 'inline-block' }}></span>
-              SYSTEM ACTIVE [OBSERVE MODE]
+              SYSTEM ACTIVE [{autotraderMode} MODE]
             </span>
           )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px', fontSize: '12px', color: '#475569' }}>
           <span style={{ fontFamily: '"DM Mono", monospace', fontSize: '11px', color: '#64748B' }}>COUNCIL: 3 MODELS ONLINE</span>
-          <span style={{ fontFamily: '"DM Mono", monospace', fontSize: '11px', color: '#64748B' }}>STALENESS: OK</span>
+
+          {/* Cycle Health Indicator — shows time since last successful cycle */}
+          {(() => {
+            const { status, secondsSinceSuccess, lastCycleFailed, lastReason } = cycleHealth;
+            const fmtAge = (s: number) => s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
+            const pillColor = status === 'OK' ? '#16A34A' : status === 'FAILED' ? '#DC2626' : status === 'CRITICAL' ? '#DC2626' : status === 'STALE' ? '#D97706' : '#64748B';
+            const pillBg = status === 'OK' ? 'rgba(22,163,74,0.1)' : status === 'FAILED' ? 'rgba(220,38,38,0.15)' : status === 'CRITICAL' ? 'rgba(220,38,38,0.15)' : status === 'STALE' ? 'rgba(217,119,6,0.12)' : 'rgba(100,116,139,0.1)';
+            const pillGlow = status === 'FAILED' || status === 'CRITICAL' ? `0 0 8px rgba(220,38,38,0.4)` : 'none';
+            const label = secondsSinceSuccess !== null ? `CYCLE ${fmtAge(secondsSinceSuccess)}` : 'CYCLE UNKNOWN';
+            const dotColor = status === 'OK' ? '#22C55E' : status === 'FAILED' || status === 'CRITICAL' ? '#EF4444' : status === 'STALE' ? '#F59E0B' : '#94A3B8';
+            const title = lastCycleFailed && lastReason ? `LAST FAILURE: ${lastReason.substring(0, 200)}` : `Last successful cycle: ${secondsSinceSuccess !== null ? fmtAge(secondsSinceSuccess) : 'unknown'}`;
+            return (
+              <span
+                id="cycle-health-indicator"
+                title={title}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '5px',
+                  fontFamily: '"DM Mono", monospace', fontSize: '11px',
+                  color: pillColor, backgroundColor: pillBg,
+                  border: `1px solid ${pillColor}`,
+                  padding: '3px 8px', borderRadius: '3px',
+                  boxShadow: pillGlow,
+                  cursor: 'default',
+                  transition: 'all 0.3s ease',
+                }}
+              >
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: dotColor, display: 'inline-block', flexShrink: 0 }} />
+                {label}
+                {lastCycleFailed && <span style={{ marginLeft: '2px' }}>⚠</span>}
+              </span>
+            );
+          })()}
+
           <a href="/landing" style={{ color: '#1E3A5F', textDecoration: 'none', fontWeight: 500 }}>PRODUCT OVERVIEW</a>
           <a href="/architecture" style={{ color: '#1E3A5F', textDecoration: 'none', fontWeight: 500 }}>SPECIFICATION</a>
 
           {/* Mandatory Kill Switch Control */}
           <button
             id="kill-switch-btn"
+            disabled={togglingKillSwitch}
             style={{
-              backgroundColor: '#DC2626',
+              backgroundColor: autoEnabled ? '#DC2626' : '#16A34A',
               color: '#FFFFFF',
-              border: '1px solid #DC2626',
+              border: `1px solid ${autoEnabled ? '#DC2626' : '#16A34A'}`,
               padding: '6px 14px',
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: '11px',
+              fontFamily: '"DM Mono", monospace',
               letterSpacing: '0.5px',
-              cursor: 'pointer'
+              cursor: togglingKillSwitch ? 'wait' : 'pointer',
+              opacity: togglingKillSwitch ? 0.7 : 1,
+              boxShadow: autoEnabled ? '0 0 10px rgba(220,38,38,0.5)' : '0 0 10px rgba(22,163,74,0.5)',
             }}
-            onClick={() => { console.log('MERIDIAN HALT TRIGGERED. All order routing suspended.'); }}
+            onClick={handleToggleKillSwitch}
           >
-            HALT / KILL SWITCH
+            {togglingKillSwitch ? 'UPDATING...' : autoEnabled ? `⏹ DISABLE ALGO (${autotraderMode})` : `▶ ENABLE ALGO (${autotraderMode})`}
           </button>
         </div>
       </header>

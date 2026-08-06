@@ -33,6 +33,28 @@ import type { NewsCalendarStatus } from './types';
 
 const log = createLogger('calendar');
 
+/**
+ * Validates calendar-related environment-variable configuration.
+ * Throws a descriptive Error (not mid-cycle but at STARTUP) if an
+ * incompatible combination is detected.
+ *
+ * Call once from the run-cycle entry point BEFORE acquiring the lock.
+ * Failing fast here produces a single clear error in the process log
+ * instead of 400+ silent 500s per day.
+ */
+export function assertCalendarConfig(): void {
+  if (
+    process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER === 'true' &&
+    process.env.TIER_4_ENABLED === 'true'
+  ) {
+    throw new Error(
+      'CONFIG_CONFLICT: ALLOW_UNCHECKED_NEWS_IN_PAPER=true is forbidden when TIER_4_ENABLED=true. ' +
+      'This combination would bypass the news-blackout gate in LIVE mode. ' +
+      'Either remove ALLOW_UNCHECKED_NEWS_IN_PAPER or set TIER_4_ENABLED=false.'
+    );
+  }
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -226,9 +248,16 @@ export async function checkNewsBlackoutStatus(
   // Handle ALLOW_UNCHECKED_NEWS_IN_PAPER flag
   if (status === 'UNKNOWN' && allowUncheckedInPaper) {
     if (process.env.TIER_4_ENABLED === 'true') {
-      throw new Error(
-        'Security Exception: ALLOW_UNCHECKED_NEWS_IN_PAPER is strictly forbidden when TIER_4_ENABLED=true (LIVE mode).'
+      // assertCalendarConfig() should have caught this at startup.
+      // If we somehow reach here, fail-closed with a clear message.
+      // Do NOT throw — returning BLACKOUT keeps the cycle alive so the
+      // FAILED row can be written by the top-level catch in cycle.ts.
+      log.error(
+        'CONFIG_CONFLICT detected mid-cycle: ALLOW_UNCHECKED_NEWS_IN_PAPER=true with TIER_4_ENABLED=true. ' +
+        'Returning BLACKOUT to block trading. Fix the environment variables and restart.',
+        { errorCode: 'CONFIG_CONFLICT_ALLOW_UNCHECKED_LIVE' }
       );
+      return 'BLACKOUT';
     }
     log.warn('ALLOW_UNCHECKED_NEWS_IN_PAPER active in paper mode — resolving UNKNOWN status to CLEAR');
     return 'CLEAR';

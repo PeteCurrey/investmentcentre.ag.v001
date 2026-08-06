@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireSession } from '../../../lib/auth';
 import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState } from '@meridian/risk';
-import { toScaledInteger, createPrice, moneyToString, insertCycleLog, insertGateDecision, getMode } from '@meridian/core';
+import { toScaledInteger, createPrice, moneyToString, insertCycleLog, insertGateDecision, getMode, readAutotraderConfig } from '@meridian/core';
 import crypto from 'crypto';
 
 export async function GET() {
@@ -30,16 +30,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = await request.json() as {
-    instrument: string;
-    direction: 'BUY' | 'SELL';
-    units: string;
-    stopLoss?: string;
-    takeProfit?: string;
-    orderType: 'MARKET' | 'LIMIT';
-    limitPrice?: string;
-    currentPrice?: string;
-  };
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'INVALID_JSON' }, { status: 400 });
+  }
 
   const {
     instrument,
@@ -204,8 +200,17 @@ export async function POST(request: Request) {
     quoteToAccountRates,
     currentSpreadPips,
   });
+  const config = await readAutotraderConfig();
+  const effectiveProfile = {
+    ...FTMO_STANDARD_PROFILE,
+    ...(config?.riskProfileOverrides ?? {}),
+    maxConcurrentPositions: Math.min(
+      config?.riskProfileOverrides?.maxConcurrentPositions ?? FTMO_STANDARD_PROFILE.maxConcurrentPositions,
+      20
+    ),
+  };
 
-  const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, accountRiskState);
+  const decision = RiskGate.evaluate(intent, effectiveProfile, accountRiskState);
 
   // Persist gate decision with complete fields
   await insertGateDecision({
@@ -216,8 +221,8 @@ export async function POST(request: Request) {
     entryPrice: entryStr,
     stopLossPrice: stopLoss,
     takeProfitPrice: takeProfit ?? null,
-    profileId: FTMO_STANDARD_PROFILE.id,
-    profileSnapshot: FTMO_STANDARD_PROFILE as unknown as Record<string, unknown>,
+    profileId: effectiveProfile.id,
+    profileSnapshot: effectiveProfile as unknown as Record<string, unknown>,
     accountState: {
       accountId,
       accountCurrency: accountRiskState.accountCurrency,

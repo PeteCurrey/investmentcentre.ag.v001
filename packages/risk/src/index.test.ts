@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, AccountRiskState, requireHmacSecret, checkNewsBlackoutActive, checkNewsBlackoutStatus, CalendarEvent } from './index';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, AccountRiskState, requireHmacSecret, checkNewsBlackoutActive, checkNewsBlackoutStatus, assertCalendarConfig, CalendarEvent } from './index';
 import { toScaledInteger, createPrice } from '@meridian/core';
 
 describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
@@ -413,13 +413,21 @@ describe('checkNewsBlackoutStatus & checkNewsBlackoutActive (Tri-State Calendar)
     expect(active).toBe(false);
   });
 
-  it('ALLOW_UNCHECKED_NEWS_IN_PAPER: throws security exception if enabled in LIVE mode (TIER_4_ENABLED=true)', async () => {
+  it('ALLOW_UNCHECKED_NEWS_IN_PAPER: returns BLACKOUT (does not throw) in LIVE mode (TIER_4_ENABLED=true)', async () => {
+    // The mid-cycle throw was replaced with a logged error + BLACKOUT return.
+    // The throw was moved to assertCalendarConfig() which runs at cycle startup.
     process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER = 'true';
     process.env.TIER_4_ENABLED = 'true';
 
-    await expect(checkNewsBlackoutStatus(['USD', 'GBP'])).rejects.toThrow(
-      'Security Exception: ALLOW_UNCHECKED_NEWS_IN_PAPER is strictly forbidden when TIER_4_ENABLED=true (LIVE mode).'
-    );
+    const status = await checkNewsBlackoutStatus(['USD', 'GBP']);
+    expect(status).toBe('BLACKOUT');
+  });
+
+  it('assertCalendarConfig: throws CONFIG_CONFLICT when ALLOW_UNCHECKED_NEWS_IN_PAPER=true and TIER_4_ENABLED=true', () => {
+    process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER = 'true';
+    process.env.TIER_4_ENABLED = 'true';
+
+    expect(() => assertCalendarConfig()).toThrow('CONFIG_CONFLICT');
   });
 });
 

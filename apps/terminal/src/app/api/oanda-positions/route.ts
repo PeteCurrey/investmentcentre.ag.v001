@@ -82,10 +82,11 @@ export async function GET() {
 
   try {
     // Fetch OANDA data and the Supabase trade map concurrently.
-    const [openRes, tradesRes, accountRes, localMap] = await Promise.all([
+    const [openRes, tradesRes, accountRes, instRes, localMap] = await Promise.all([
       fetch(`${baseUrl}/accounts/${accountId}/openTrades`, { headers }),
       fetch(`${baseUrl}/accounts/${accountId}/trades?state=ALL&count=500`, { headers }),
       fetch(`${baseUrl}/accounts/${accountId}/summary`, { headers }),
+      fetch(`${baseUrl}/accounts/${accountId}/instruments`, { headers }),
       readCycleLogTradeMap(),
     ]);
 
@@ -108,6 +109,16 @@ export async function GET() {
     const accountData: OandaAccountSummary | null = accountRes.ok
       ? await accountRes.json()
       : null;
+
+    let accountInstruments: string[] = [];
+    if (instRes.ok) {
+      try {
+        const instData = (await instRes.json()) as { instruments?: Array<{ name: string }> };
+        if (Array.isArray(instData.instruments)) {
+          accountInstruments = instData.instruments.map((i) => i.name).filter(Boolean);
+        }
+      } catch {}
+    }
 
     const openTrades: OandaTrade[] = openData.trades ?? [];
     const allTrades: OandaTrade[] = tradesData.trades ?? [];
@@ -213,6 +224,7 @@ export async function GET() {
       positions,
       execLog,
       account,
+      accountInstruments,
       tradesFetchError,
     });
   } catch (e: unknown) {
@@ -223,6 +235,7 @@ export async function GET() {
       positions: [],
       execLog: [],
       account: null,
+      accountInstruments: [],
     });
   }
 }

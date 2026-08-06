@@ -13,6 +13,15 @@ const log = createLogger('state');
 
 export type AutotraderMode = 'OBSERVE' | 'PAPER' | 'LIVE';
 
+export interface RiskProfileOverrides {
+  maxConcurrentPositions?: number;
+  maxDailyLossPct?: number;
+  maxTotalDrawdownPct?: number;
+  maxRiskPerTradePct?: number;
+  maxAggregateRiskPct?: number;
+  maxCorrelatedExposure?: number;
+}
+
 export interface RiskProfileConfig {
   slPips: number;
   tpPips: number;
@@ -24,11 +33,14 @@ export interface RiskProfileConfig {
 
 export interface AutotraderConfig {
   mode: AutotraderMode;
+  enabled: boolean;
   selectedInstruments: string[];
+  watchlist: string[];
   lotUnits: number;
   autoStopAt: string | null;
   autoStopLabel: string | null;
   riskProfile: RiskProfileConfig;
+  riskProfileOverrides: RiskProfileOverrides;
   updatedAt: string;
   updatedBy: string | null;
 }
@@ -38,11 +50,14 @@ export interface AutotraderConfig {
 interface AutotraderStateRow {
   id: string;
   mode: AutotraderMode;
+  enabled?: boolean;
   selected_instruments: string[];
+  watchlist?: string[];
   lot_units: number;
   auto_stop_at: string | null;
   auto_stop_label: string | null;
   risk_profile: unknown; // jsonb — validated on read
+  risk_profile_overrides?: unknown; // jsonb — validated on read
   updated_at: string;
   updated_by: string | null;
 }
@@ -69,16 +84,32 @@ function isRiskProfileConfig(v: unknown): v is RiskProfileConfig {
   );
 }
 
+function parseRiskProfileOverrides(v: unknown): RiskProfileOverrides {
+  if (typeof v !== 'object' || v === null) return {};
+  const o = v as Record<string, unknown>;
+  const res: RiskProfileOverrides = {};
+  if (typeof o['maxConcurrentPositions'] === 'number') res.maxConcurrentPositions = o['maxConcurrentPositions'];
+  if (typeof o['maxDailyLossPct'] === 'number') res.maxDailyLossPct = o['maxDailyLossPct'];
+  if (typeof o['maxTotalDrawdownPct'] === 'number') res.maxTotalDrawdownPct = o['maxTotalDrawdownPct'];
+  if (typeof o['maxRiskPerTradePct'] === 'number') res.maxRiskPerTradePct = o['maxRiskPerTradePct'];
+  if (typeof o['maxAggregateRiskPct'] === 'number') res.maxAggregateRiskPct = o['maxAggregateRiskPct'];
+  if (typeof o['maxCorrelatedExposure'] === 'number') res.maxCorrelatedExposure = o['maxCorrelatedExposure'];
+  return res;
+}
+
 function rowToConfig(row: AutotraderStateRow): AutotraderConfig {
   return {
     mode: row.mode,
+    enabled: row.enabled ?? false,
     selectedInstruments: row.selected_instruments ?? [],
+    watchlist: row.watchlist ?? [],
     lotUnits: row.lot_units ?? 100,
     autoStopAt: row.auto_stop_at ?? null,
     autoStopLabel: row.auto_stop_label ?? null,
     riskProfile: isRiskProfileConfig(row.risk_profile)
       ? row.risk_profile
       : DEFAULT_RISK_PROFILE,
+    riskProfileOverrides: parseRiskProfileOverrides(row.risk_profile_overrides),
     updatedAt: row.updated_at,
     updatedBy: row.updated_by ?? null,
   };
@@ -115,13 +146,25 @@ export async function readAutotraderConfig(): Promise<AutotraderConfig | null> {
   }
 }
 
+/**
+ * Lightweight, fail-closed read of the `enabled` boolean flag only.
+ * Returns false on any database error or missing row.
+ */
+export async function readAutotraderEnabled(): Promise<boolean> {
+  const config = await readAutotraderConfig();
+  return config?.enabled ?? false;
+}
+
 export interface AutotraderConfigPatch {
   mode?: AutotraderMode;
+  enabled?: boolean;
   selectedInstruments?: string[];
+  watchlist?: string[];
   lotUnits?: number;
   autoStopAt?: string | null;
   autoStopLabel?: string | null;
   riskProfile?: Partial<RiskProfileConfig>;
+  riskProfileOverrides?: RiskProfileOverrides;
   updatedBy?: string;
 }
 
@@ -141,11 +184,18 @@ export async function writeAutotraderConfig(
       ...(patch.riskProfile ?? {}),
     };
 
+    const mergedRiskProfileOverrides: RiskProfileOverrides = {
+      ...(current?.riskProfileOverrides ?? {}),
+      ...(patch.riskProfileOverrides ?? {}),
+    };
+
     const upsertPayload: Omit<AutotraderStateRow, 'id'> & { id: string } = {
       id: 'singleton',
       mode: patch.mode ?? current?.mode ?? 'OBSERVE',
+      enabled: patch.enabled !== undefined ? patch.enabled : (current?.enabled ?? false),
       selected_instruments:
         patch.selectedInstruments ?? current?.selectedInstruments ?? [],
+      watchlist: patch.watchlist ?? current?.watchlist ?? [],
       lot_units: patch.lotUnits ?? current?.lotUnits ?? 100,
       auto_stop_at:
         patch.autoStopAt !== undefined
@@ -156,6 +206,7 @@ export async function writeAutotraderConfig(
           ? patch.autoStopLabel
           : (current?.autoStopLabel ?? null),
       risk_profile: mergedRiskProfile,
+      risk_profile_overrides: mergedRiskProfileOverrides,
       updated_at: new Date().toISOString(),
       updated_by: patch.updatedBy ?? 'system',
     };
@@ -177,6 +228,60 @@ export async function writeAutotraderConfig(
   } catch (err: unknown) {
     log.error('writeAutotraderConfig: unexpected error', { err });
     return null;
+  }
+}
+
+/**
+ * Dedicated write for the algo trading kill switch.
+ * Does not touch mode or any other field.
+ */
+export async function writeAutotraderEnabled(
+  enabled: boolean,
+  actor: string
+): Promise<boolean> {
+  const result = await writeAutotraderConfig({ enabled, updatedBy: actor });
+  return result !== null;
+}
+
+// ─── risk_profile_changes ──────────────────────────────────────────────────────
+
+export interface RiskProfileChangeRecord {
+  fieldName: string;
+  oldValue: unknown;
+  newValue: unknown;
+  actor: string;
+  reason: string;
+}
+
+/**
+ * Inserts one record into meridian.risk_profile_changes.
+ * Returns true on success, false on failure.
+ */
+export async function insertRiskProfileChange(
+  rec: RiskProfileChangeRecord
+): Promise<boolean> {
+  try {
+    const sb = getSupabaseServiceClient();
+    const { error } = await sb
+      .schema('meridian')
+      .from('risk_profile_changes')
+      .insert({
+        field_name: rec.fieldName,
+        old_value: rec.oldValue,
+        new_value: rec.newValue,
+        actor: rec.actor,
+        reason: rec.reason,
+        changed_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      log.error('insertRiskProfileChange: insert failed', { error: error.message });
+      return false;
+    }
+    return true;
+  } catch (err: unknown) {
+    log.error('insertRiskProfileChange: unexpected error', { err });
+    return false;
   }
 }
 
@@ -427,4 +532,80 @@ export async function readCycleLogTradeMap(): Promise<
   }
 
   return map;
+}
+
+// ─── cycle health ─────────────────────────────────────────────────────────────
+
+export interface CycleHealthSummary {
+  /** ISO timestamp of the most recent cycle_log row with action='EXECUTED' or a non-FAILED, non-SKIPPED terminal entry. */
+  lastSuccessfulAt: string | null;
+  /** ISO timestamp of the most recent cycle_log row regardless of action. */
+  lastCycleAt: string | null;
+  /** action of the most recent cycle_log row. */
+  lastAction: string | null;
+  /** reason of the most recent cycle_log row. */
+  lastReason: string | null;
+  /** Whether the most recent cycle completed with action=FAILED. */
+  lastCycleFailed: boolean;
+}
+
+/**
+ * Reads the last successful cycle timestamp and most recent cycle summary.
+ * A "successful" cycle is one whose most recent row is NOT FAILED — i.e. it
+ * completed evaluation even if all instruments were SKIPPED or OBSERVE_EVAL.
+ * Returns nulls on any failure so the UI degrades gracefully.
+ */
+export async function readCycleHealth(): Promise<CycleHealthSummary> {
+  const empty: CycleHealthSummary = {
+    lastSuccessfulAt: null,
+    lastCycleAt: null,
+    lastAction: null,
+    lastReason: null,
+    lastCycleFailed: false,
+  };
+
+  try {
+    const sb = getSupabaseServiceClient();
+
+    // Most recent row overall
+    const { data: latestRows, error: latestErr } = await sb
+      .schema('meridian')
+      .from('cycle_log')
+      .select('created_at, action, reason, cycle_id')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (latestErr || !latestRows?.length) {
+      return empty;
+    }
+
+    const latest = latestRows[0] as { created_at: string; action: string; reason: string | null; cycle_id: string };
+    const lastCycleFailed = latest.action === 'FAILED';
+
+    // Most recent non-FAILED cycle: find the latest created_at where cycle_id
+    // does NOT appear in a FAILED row. Simple proxy: last row with action != FAILED.
+    const { data: successRows, error: successErr } = await sb
+      .schema('meridian')
+      .from('cycle_log')
+      .select('created_at')
+      .neq('action', 'FAILED')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const lastSuccessfulAt =
+      !successErr && successRows?.length
+        ? (successRows[0] as { created_at: string }).created_at
+        : null;
+
+    return {
+      lastSuccessfulAt,
+      lastCycleAt: latest.created_at,
+      lastAction: latest.action,
+      lastReason: latest.reason,
+      lastCycleFailed,
+    };
+  } catch (err: unknown) {
+    log.error('readCycleHealth: unexpected error', { err });
+    return empty;
+  }
 }

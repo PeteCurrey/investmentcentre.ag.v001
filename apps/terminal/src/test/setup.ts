@@ -75,6 +75,7 @@ export interface MockDbState {
   accountDays: any[];
   trades: any[];
   cycleLocks: Set<string>;
+  enabled: boolean;
 }
 
 export function createInitialDbState(): MockDbState {
@@ -94,6 +95,7 @@ export function createInitialDbState(): MockDbState {
       },
     },
     mode: 'OBSERVE',
+    enabled: true,
     gateDecisions: [],
     cycleLogs: [],
     accountDays: [],
@@ -117,12 +119,19 @@ vi.mock('@meridian/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@meridian/core')>();
   return {
     ...actual,
-    readAutotraderConfig: async () => ({ ...mockDb.config, mode: mockDb.mode }),
+    readAutotraderConfig: async () => ({ ...mockDb.config, mode: mockDb.mode, enabled: mockDb.enabled }),
+    readAutotraderEnabled: async () => mockDb.enabled,
+    writeAutotraderEnabled: async (enabled: boolean) => {
+      mockDb.enabled = enabled;
+      return true;
+    },
     writeAutotraderConfig: async (updates: any) => {
       if (updates.mode) mockDb.mode = updates.mode;
+      if (updates.enabled !== undefined) mockDb.enabled = updates.enabled;
       mockDb.config = { ...mockDb.config, ...updates };
-      return { ...mockDb.config, mode: mockDb.mode };
+      return { ...mockDb.config, mode: mockDb.mode, enabled: mockDb.enabled };
     },
+    insertRiskProfileChange: async () => true,
     getMode: async () => mockDb.mode,
     setMode: async (mode: any) => {
       mockDb.mode = mode;
@@ -498,6 +507,20 @@ export function setupFetchMock() {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    // OANDA Instruments Endpoint
+    if (url.includes('/v3/accounts/') && url.includes('/instruments')) {
+      return new Response(
+        JSON.stringify({
+          instruments: [
+            { name: 'GBP_USD', type: 'CURRENCY' },
+            { name: 'EUR_USD', type: 'CURRENCY' },
+            { name: 'XAU_USD', type: 'METAL' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     // Fallback to original fetch for non-OANDA URLs

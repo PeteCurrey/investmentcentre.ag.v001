@@ -12,7 +12,7 @@
  */
 
 import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
-import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize, checkNewsBlackoutStatus } from '@meridian/risk';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize, checkNewsBlackoutStatus, assertCalendarConfig } from '@meridian/risk';
 import { generateSignal } from '@meridian/signals';
 import { createPrice, moneyToString } from '@meridian/core';
 import {
@@ -68,7 +68,37 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
   const minuteBucket = Math.floor(Date.now() / 60_000);
   const cycleId = providedCycleId ?? `cycle-${minuteBucket}`;
 
-  // ── 0. Assert schema completeness ──────────────────────────────────────────
+  // ── 0. Assert environment configuration — fail fast at startup ────────────
+  // Must run BEFORE the lock is acquired so a bad config produces a single
+  // clear error rather than 500s on every cycle invocation forever.
+  try {
+    assertCalendarConfig();
+  } catch (cfgErr: unknown) {
+    const cfgMsg = cfgErr instanceof Error ? cfgErr.message : String(cfgErr);
+    const cfgStack = cfgErr instanceof Error ? (cfgErr.stack ?? cfgMsg) : cfgMsg;
+    // Log to DB even without a lock — this is a configuration error, not an execution error
+    await insertCycleLog({
+      cycleId,
+      instrument: null,
+      action: 'FAILED',
+      reason: `CONFIG_CONFLICT: ${cfgMsg}`,
+      orderId: null,
+    }).catch(() => { /* best-effort */ });
+    // Also log to structured output so it appears in Vercel Function logs
+    const { createLogger } = await import('@meridian/core');
+    createLogger('cycle').error('STARTUP CONFIG CONFLICT — cycle halted', {
+      cycleId,
+      error: cfgStack,
+      errorCode: 'CONFIG_CONFLICT',
+    });
+    return {
+      success: false,
+      reason: `CONFIG_CONFLICT: ${cfgMsg}`,
+      cycleId,
+    };
+  }
+
+  // ── 0b. Assert schema completeness ────────────────────────────────────────
   // If any required table is missing (unapplied migration), throw immediately.
   // This surfaces clearly in Vercel logs rather than masking as CYCLE_IN_FLIGHT.
   await assertSchemaComplete();
@@ -123,10 +153,11 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         `Auto-stop schedule reached at ${config.autoStopAt}`
       );
       if (autoStopResult.ok) {
-        // Clear the schedule fields now that the transition is recorded.
+        // Clear the schedule fields now that the transition is recorded and disable engine.
         await writeAutotraderConfig({
           autoStopAt: null,
           autoStopLabel: null,
+          enabled: false,
           updatedBy: 'system:auto-stop',
         });
       }
@@ -141,8 +172,25 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       });
       return {
         success: false,
-        reason: 'Auto-stop schedule reached. Engine returning to OBSERVE.',
+        reason: `Auto-stop schedule reached at ${config.autoStopAt}. Engine returning to OBSERVE.`,
         mode: 'OBSERVE',
+        cycleId,
+      };
+    }
+
+    // ── 4b. Check enabled flag (fail-closed) ─────────────────────────────────
+    if (!config.enabled) {
+      await insertCycleLog({
+        cycleId,
+        instrument: null,
+        action: 'SKIPPED',
+        reason: `AUTOTRADER_DISABLED: Algo trading is OFF (mode: ${mode}). No instruments evaluated.`,
+        orderId: null,
+      });
+      return {
+        success: false,
+        reason: 'AUTOTRADER_DISABLED: Algo trading is OFF.',
+        mode,
         cycleId,
       };
     }
@@ -197,6 +245,17 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
 
     const accountState = stateResult.value;
 
+    // Merge DB overrides onto FTMO_STANDARD_PROFILE baseline
+    // Enforce hard ceiling of 20 maxConcurrentPositions
+    const effectiveProfile = {
+      ...FTMO_STANDARD_PROFILE,
+      ...(config.riskProfileOverrides ?? {}),
+      maxConcurrentPositions: Math.min(
+        config.riskProfileOverrides?.maxConcurrentPositions ?? FTMO_STANDARD_PROFILE.maxConcurrentPositions,
+        20
+      ),
+    };
+
     // Verify account currency is present
     const accountCurrency = accountState.currency?.toUpperCase();
     if (!accountCurrency) {
@@ -213,11 +272,12 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       }
     }
 
-    // ── 8. Evaluate each active instrument ────────────────────────────────────
-    const activeInstruments =
+    // ── 8. Evaluate each active instrument (capped at 10 max) ────────────────
+    const rawActive =
       config.selectedInstruments.length > 0
         ? config.selectedInstruments
         : ['GBP/USD', 'EUR/USD', 'XAU/USD'];
+    const activeInstruments = rawActive.slice(0, 10);
 
     const executedLogs: string[] = [];
 
@@ -501,7 +561,7 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       // Risk-Derived Position Sizing
       const sizeResult = calculatePositionSize(
         { instrument: displaySymbol, entryPrice, stopLossPrice },
-        FTMO_STANDARD_PROFILE,
+        effectiveProfile,
         accountRiskState,
         config.lotUnits
       );
@@ -552,7 +612,7 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         requestedAt: new Date().toISOString(),
       };
 
-      const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, accountRiskState);
+      const decision = RiskGate.evaluate(intent, effectiveProfile, accountRiskState);
 
       // ── Persist gate decision (every evaluation, every mode) ──────────────
       await insertGateDecision({
@@ -563,15 +623,15 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         entryPrice: entryStr,
         stopLossPrice: slStr,
         takeProfitPrice: rp.sendTpToOanda ? tpStr : null,
-        profileId: FTMO_STANDARD_PROFILE.id,
+        profileId: effectiveProfile.id,
         profileSnapshot: {
-          id: FTMO_STANDARD_PROFILE.id,
-          name: FTMO_STANDARD_PROFILE.name,
-          maxDailyLossPct: FTMO_STANDARD_PROFILE.maxDailyLossPct,
-          maxTotalDrawdownPct: FTMO_STANDARD_PROFILE.maxTotalDrawdownPct,
-          maxRiskPerTradePct: FTMO_STANDARD_PROFILE.maxRiskPerTradePct,
-          maxConcurrentPositions: FTMO_STANDARD_PROFILE.maxConcurrentPositions,
-          newsBlackoutWindowMinutes: FTMO_STANDARD_PROFILE.newsBlackoutWindowMinutes,
+          id: effectiveProfile.id,
+          name: effectiveProfile.name,
+          maxDailyLossPct: effectiveProfile.maxDailyLossPct,
+          maxTotalDrawdownPct: effectiveProfile.maxTotalDrawdownPct,
+          maxRiskPerTradePct: effectiveProfile.maxRiskPerTradePct,
+          maxConcurrentPositions: effectiveProfile.maxConcurrentPositions,
+          newsBlackoutWindowMinutes: effectiveProfile.newsBlackoutWindowMinutes,
         },
         accountState: {
           accountId,
@@ -718,6 +778,30 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       cycleId,
       executedLogs,
     };
+  } catch (err: unknown) {
+    // ── Top-level catch: the only path that previously produced no diagnostic output.
+    // Log the full error to both structured output AND cycle_log before rethrowing.
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errStack = err instanceof Error ? (err.stack ?? errMsg) : errMsg;
+    const { createLogger } = await import('@meridian/core');
+    createLogger('cycle').error('runCycle threw unhandled exception', {
+      cycleId,
+      error: errStack,
+    });
+    // Best-effort DB write — do not let a second failure mask the first
+    await insertCycleLog({
+      cycleId,
+      instrument: null,
+      action: 'FAILED',
+      reason: `UNHANDLED_EXCEPTION: ${errStack}`,
+      orderId: null,
+    }).catch((dbErr: unknown) => {
+      createLogger('cycle').error('Failed to write FAILED cycle_log row', {
+        cycleId,
+        dbError: dbErr instanceof Error ? dbErr.message : String(dbErr),
+      });
+    });
+    throw err; // rethrow so route.ts returns 500
   } finally {
     // Always release the lock — even if the cycle threw
     await releaseCycleLock(cycleId);
