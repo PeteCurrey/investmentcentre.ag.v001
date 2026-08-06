@@ -253,6 +253,11 @@ function TradePageInner() {
   // Chart theme (persisted)
   const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
 
+  // Broker account tradeable instruments & LIVE confirmation modal state
+  const [brokerAccountInstruments, setBrokerAccountInstruments] = useState<Set<string>>(new Set());
+  const [showLiveConfirmModal, setShowLiveConfirmModal] = useState<boolean>(false);
+  const [pendingLiveFromMode, setPendingLiveFromMode] = useState<string | null>(null);
+
   // Table UX & Refresh Timer
   const [hoveredRow, setHoveredRow]                 = useState<string | null>(null);
   const [refreshCountdown, setRefreshCountdown]     = useState<number>(30);
@@ -390,6 +395,9 @@ function TradePageInner() {
         setPositions(data.positions || []);
         setExecLog(data.execLog || []);
         if (data.account) setAccount(data.account);
+        if (Array.isArray(data.accountInstruments)) {
+          setBrokerAccountInstruments(new Set(data.accountInstruments));
+        }
         if (data.tradesFetchError) {
           setOandaError(`TRADES API ERROR: ${data.tradesFetchError}`);
         } else {
@@ -467,54 +475,23 @@ function TradePageInner() {
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   // ── Mode Transitions ───────────────────────────────────────────────────────
-  const executeTransition = useCallback(async (fromMode: string, toMode: string) => {
+  // All transitions go through /api/autotrader/mode-transition with an explicit reason.
+  // OBSERVE→LIVE is forbidden by both the API and DB layers.
+  // PAPER→LIVE requires deliberate modal confirmation — it is never reached by a single toggle.
+  const executeTransition = useCallback(async (fromMode: string, toMode: string, reason: string) => {
     if (fromMode === toMode || autoToggling) return;
     setAutoToggling(true);
-
     try {
-      if (fromMode === 'OBSERVE' && toMode === 'LIVE') {
-        // Step 1: OBSERVE -> PAPER
-        const s1 = await fetch('/api/autotrader', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requestTransition: { from: 'OBSERVE', to: 'PAPER', reason: 'User selected LIVE mode in UI (Step 1)' }
-          }),
-        });
-        const d1 = await s1.json();
-        if (!d1.success) {
-          alert(`Transition Step 1 Failed: ${d1.error}`);
-          setAutoToggling(false);
-          return;
-        }
-        // Step 2: PAPER -> LIVE
-        const s2 = await fetch('/api/autotrader', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requestTransition: { from: 'PAPER', to: 'LIVE', reason: 'User selected LIVE mode in UI (Step 2)' }
-          }),
-        });
-        const d2 = await s2.json();
-        if (d2.success) {
-          setAutotrader(d2);
-        } else {
-          alert(`LIVE Mode activation failed: ${d2.error}`);
-        }
+      const res = await fetch('/api/autotrader/mode-transition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: fromMode, to: toMode, reason }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAutotrader((prev: any) => ({ ...prev, ...data.config, enabled: data.mode !== 'OBSERVE', mode: data.mode }));
       } else {
-        const res = await fetch('/api/autotrader', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requestTransition: { from: fromMode, to: toMode, reason: `User selected ${toMode} mode in UI` }
-          }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setAutotrader(data);
-        } else {
-          alert(`Mode transition failed: ${data.error}`);
-        }
+        alert(`Mode transition failed: ${data.error}`);
       }
     } catch (e: any) {
       alert(`Network error during mode transition: ${e.message}`);
@@ -522,32 +499,72 @@ function TradePageInner() {
     setAutoToggling(false);
   }, [autoToggling]);
 
-  const handleToggleAutotrader = useCallback(async () => {
-    if (!autotrader || autoToggling) return;
-    const currentMode = autotrader.mode ?? 'OBSERVE';
-    const toMode = (currentMode === 'OBSERVE') ? 'LIVE' : 'OBSERVE';
-    await executeTransition(currentMode, toMode);
-  }, [autotrader, autoToggling, executeTransition]);
+  // Request LIVE — always shows confirmation modal first. Never directly transitions.
+  const handleRequestLive = useCallback((fromMode: string) => {
+    if (autoToggling) return;
+    setPendingLiveFromMode(fromMode);
+    setShowLiveConfirmModal(true);
+  }, [autoToggling]);
 
-  const handleToggleInstrument = useCallback(async (symbolToToggle: string) => {
+  // User confirmed LIVE in modal
+  const handleConfirmLive = useCallback(async () => {
+    if (!pendingLiveFromMode) return;
+    setShowLiveConfirmModal(false);
+    await executeTransition(pendingLiveFromMode, 'LIVE', 'User confirmed LIVE activation via confirmation modal');
+    setPendingLiveFromMode(null);
+  }, [pendingLiveFromMode, executeTransition]);
+
+  // User cancelled LIVE in modal
+  const handleCancelLive = useCallback(() => {
+    setShowLiveConfirmModal(false);
+    setPendingLiveFromMode(null);
+  }, []);
+
+  // Toggle autotrader instrument in the autotrader active set only (not watchlist)
+  const handleToggleInstrument = useCallback(async (symbolToToggle: string, type: 'autotrader' | 'watchlist') => {
     if (!autotrader) return;
-    const current = autotrader.selectedInstruments || ['GBP/USD'];
-    const updated = current.includes(symbolToToggle)
-      ? current.filter(s => s !== symbolToToggle)
-      : [...current, symbolToToggle];
 
-    if (updated.length === 0) return; // Must keep at least 1 instrument
+    if (type === 'autotrader') {
+      const current = autotrader.selectedInstruments || [];
+      const updated = current.includes(symbolToToggle)
+        ? current.filter((s: string) => s !== symbolToToggle)
+        : [...current, symbolToToggle];
 
-    setStoredAutoList(updated);
-    try {
-      const res = await fetch('/api/autotrader', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selectedInstruments: updated }),
-      });
-      const data = await res.json();
-      if (data.success) setAutotrader(data);
-    } catch {}
+      if (updated.length > 10) {
+        alert('Maximum 10 instruments for autotrader evaluation. Remove one before adding another.');
+        return;
+      }
+
+      setStoredAutoList(updated);
+      try {
+        const res = await fetch('/api/autotrader', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selectedInstruments: updated }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setAutotrader(data);
+        } else {
+          alert(`Instrument update failed: ${data.error}`);
+        }
+      } catch {}
+    } else {
+      // Watchlist only — never touches selectedInstruments
+      const current = (autotrader as any).watchlist || [];
+      const updated = current.includes(symbolToToggle)
+        ? current.filter((s: string) => s !== symbolToToggle)
+        : [...current, symbolToToggle];
+      try {
+        const res = await fetch('/api/autotrader', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ watchlist: updated }),
+        });
+        const data = await res.json();
+        if (data.success) setAutotrader(data);
+      } catch {}
+    }
   }, [autotrader]);
 
   const handleSetLotUnits = useCallback(async (unitsNum: number) => {
@@ -763,29 +780,27 @@ function TradePageInner() {
                 MODE: {autotrader?.mode === 'LIVE' ? '🔴 LIVE (OANDA BROKER ACTIVE)' : autotrader?.mode === 'PAPER' ? '🟢 PAPER (SIMULATED FILLS)' : '⚪ OBSERVE (PAUSED)'}
               </span>
 
-              {/* Mode Selection Pills */}
+                {/* Mode State Indicator Pills — display only, no action */}
               <div style={{ display: 'flex', gap: '4px', marginLeft: '12px' }}>
                 {(['OBSERVE', 'PAPER', 'LIVE'] as const).map(m => {
                   const isCur = autotrader?.mode === m;
                   return (
-                    <button
+                    <span
                       key={m}
-                      disabled={autoToggling || isCur}
-                      onClick={() => executeTransition(autotrader?.mode ?? 'OBSERVE', m)}
                       style={{
                         padding: '3px 8px',
                         fontSize: '9px',
                         fontWeight: 800,
                         ...mono,
-                        cursor: isCur ? 'default' : 'pointer',
                         borderRadius: '3px',
-                        border: `1px solid ${isCur ? (m === 'LIVE' ? '#DC2626' : m === 'PAPER' ? '#16A34A' : '#475569') : '#CBD5E1'}`,
-                        backgroundColor: isCur ? (m === 'LIVE' ? '#FEF2F2' : m === 'PAPER' ? '#F0FDF4' : '#F1F5F9') : '#FFFFFF',
-                        color: isCur ? (m === 'LIVE' ? '#991B1B' : m === 'PAPER' ? '#166534' : '#0F172A') : '#64748B',
+                        border: `1px solid ${isCur ? (m === 'LIVE' ? '#DC2626' : m === 'PAPER' ? '#16A34A' : '#475569') : '#E2E8F0'}`,
+                        backgroundColor: isCur ? (m === 'LIVE' ? '#FEF2F2' : m === 'PAPER' ? '#F0FDF4' : '#F1F5F9') : '#F8FAFC',
+                        color: isCur ? (m === 'LIVE' ? '#991B1B' : m === 'PAPER' ? '#166534' : '#0F172A') : '#CBD5E1',
+                        userSelect: 'none',
                       }}
                     >
                       {m === 'LIVE' ? '⚡ LIVE' : m === 'PAPER' ? '📝 PAPER' : '⏸ OBSERVE'}
-                    </button>
+                    </span>
                   );
                 })}
               </div>
@@ -823,12 +838,12 @@ function TradePageInner() {
 
             {!autotrader?.enabled && (
               <div style={{ fontSize: '10px', color: '#6B7280', paddingLeft: '20px' }}>
-                Auto-trading is currently <strong>OFF</strong>. Turn ON to evaluate selected instruments every 60s &amp; execute trades on OANDA.
+                Auto-trading is currently <strong>OFF</strong>. Use the mode controls to start PAPER or LIVE trading.
               </div>
             )}
           </div>
 
-          {/* Controls: ON/OFF Toggle + Instant Trigger + Settings Toggles */}
+          {/* Controls: Explicit per-state action buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, flexWrap: 'wrap' }}>
             {autotrader?.enabled && (
               <div style={{ textAlign: 'center', minWidth: '70px' }}>
@@ -837,22 +852,100 @@ function TradePageInner() {
               </div>
             )}
 
-            <button
-              onClick={handleToggleAutotrader}
-              disabled={autoToggling || !autotrader}
-              style={{
-                padding: '11px 22px',
-                backgroundColor: autotrader?.enabled ? '#DC2626' : '#16A34A',
-                color: '#FFFFFF', border: 'none',
-                cursor: autoToggling ? 'wait' : 'pointer',
-                fontSize: '11px', fontWeight: 800, ...mono,
-                letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
-                transition: 'all 0.2s ease', minWidth: '170px',
-                boxShadow: autotrader?.enabled ? '0 0 14px rgba(220,38,38,0.5)' : '0 0 14px rgba(22,163,74,0.5)',
-              }}
-            >
-              {autoToggling ? 'UPDATING...' : autotrader?.enabled ? '⏹ STOP AUTO TRADING' : '▶ START AUTO TRADING'}
-            </button>
+            {/* OBSERVE: offer START PAPER */}
+            {autotrader?.mode === 'OBSERVE' && (
+              <button
+                id="btn-start-paper"
+                onClick={() => executeTransition('OBSERVE', 'PAPER', 'User started PAPER mode via UI')}
+                disabled={autoToggling || !autotrader}
+                style={{
+                  padding: '11px 22px',
+                  backgroundColor: '#16A34A', color: '#FFFFFF', border: 'none',
+                  cursor: autoToggling ? 'wait' : 'pointer',
+                  fontSize: '11px', fontWeight: 800, ...mono,
+                  letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                  transition: 'all 0.2s ease', minWidth: '170px',
+                  boxShadow: '0 0 14px rgba(22,163,74,0.5)',
+                }}
+              >
+                {autoToggling ? 'UPDATING...' : '▶ START PAPER'}
+              </button>
+            )}
+
+            {/* PAPER: offer STOP→OBSERVE and GO LIVE (separate deliberate action) */}
+            {autotrader?.mode === 'PAPER' && (
+              <>
+                <button
+                  id="btn-stop-from-paper"
+                  onClick={() => executeTransition('PAPER', 'OBSERVE', 'User stopped autotrader from PAPER via UI')}
+                  disabled={autoToggling}
+                  style={{
+                    padding: '11px 18px',
+                    backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none',
+                    cursor: autoToggling ? 'wait' : 'pointer',
+                    fontSize: '11px', fontWeight: 800, ...mono,
+                    letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 0 10px rgba(220,38,38,0.4)',
+                  }}
+                >
+                  {autoToggling ? 'UPDATING...' : '⏹ STOP → OBSERVE'}
+                </button>
+                <button
+                  id="btn-go-live"
+                  onClick={() => handleRequestLive('PAPER')}
+                  disabled={autoToggling}
+                  style={{
+                    padding: '11px 18px',
+                    backgroundColor: '#7C2D12', color: '#FED7AA', border: '2px solid #DC2626',
+                    cursor: autoToggling ? 'wait' : 'pointer',
+                    fontSize: '11px', fontWeight: 800, ...mono,
+                    letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 0 14px rgba(220,38,38,0.7)',
+                  }}
+                >
+                  ⚡ ACTIVATE LIVE
+                </button>
+              </>
+            )}
+
+            {/* LIVE: offer DROP TO PAPER and STOP→OBSERVE */}
+            {autotrader?.mode === 'LIVE' && (
+              <>
+                <button
+                  id="btn-live-to-paper"
+                  onClick={() => executeTransition('LIVE', 'PAPER', 'User dropped from LIVE to PAPER via UI')}
+                  disabled={autoToggling}
+                  style={{
+                    padding: '11px 18px',
+                    backgroundColor: '#1C3A5E', color: '#C8F135', border: '1px solid #3B82F6',
+                    cursor: autoToggling ? 'wait' : 'pointer',
+                    fontSize: '11px', fontWeight: 800, ...mono,
+                    letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  {autoToggling ? 'UPDATING...' : '⬇ DROP TO PAPER'}
+                </button>
+                <button
+                  id="btn-stop-from-live"
+                  onClick={() => executeTransition('LIVE', 'OBSERVE', 'User stopped autotrader from LIVE via UI')}
+                  disabled={autoToggling}
+                  style={{
+                    padding: '11px 18px',
+                    backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none',
+                    cursor: autoToggling ? 'wait' : 'pointer',
+                    fontSize: '11px', fontWeight: 800, ...mono,
+                    letterSpacing: '1px', opacity: autoToggling ? 0.7 : 1,
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 0 14px rgba(220,38,38,0.6)',
+                  }}
+                >
+                  {autoToggling ? 'UPDATING...' : '⏹ STOP → OBSERVE'}
+                </button>
+              </>
+            )}
 
             {autotrader?.enabled && (
               <button
@@ -1034,37 +1127,100 @@ function TradePageInner() {
             backgroundColor: autotrader.enabled ? '#0A0D12' : '#FFFFFF',
             display: 'flex', flexDirection: 'column', gap: '16px',
           }}>
-            {/* Instrument Selection */}
+            {/* Instrument Selection — two-column: Autotrader (broker-validated, cap 10) / Watchlist */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <div style={{ fontSize: '10px', fontWeight: 800, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px' }}>
-                  AUTO-TRADING WATCHLIST (SELECT FROM ALL 65+ INSTRUMENTS):
+                  INSTRUMENT PICKER
                 </div>
-                <div style={{ fontSize: '9px', color: autotrader.enabled ? '#C8F135' : '#16A34A', fontWeight: 700 }}>
-                  {autotrader.selectedInstruments?.length || 0} INSTRUMENTS SELECTED FOR AUTONOMOUS CYCLES
+                <div style={{ display: 'flex', gap: '16px', fontSize: '9px', fontWeight: 700 }}>
+                  <span style={{ color: autotrader.enabled ? '#C8F135' : '#16A34A' }}>
+                    🤖 AUTOTRADER: {autotrader.selectedInstruments?.length || 0}/10
+                  </span>
+                  <span style={{ color: '#94A3B8' }}>
+                    👁 WATCHLIST: {(autotrader as any).watchlist?.length || 0}
+                  </span>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '180px', overflowY: 'auto', padding: '8px', backgroundColor: autotrader.enabled ? '#1E293B' : '#F8FAFC', border: '1px solid #CBD5E1' }}>
-                {INSTRUMENT_UNIVERSE.map(i => {
-                  const isSelected = (autotrader.selectedInstruments || ['GBP/USD']).includes(i.symbol);
-                  return (
-                    <button
-                      key={i.symbol}
-                      onClick={() => handleToggleInstrument(i.symbol)}
-                      style={{
-                        padding: '4px 10px',
-                        backgroundColor: isSelected ? '#16A34A' : (autotrader.enabled ? '#0F172A' : '#FFFFFF'),
-                        color: isSelected ? '#FFFFFF' : (autotrader.enabled ? '#94A3B8' : '#475569'),
-                        border: `1px solid ${isSelected ? '#16A34A' : (autotrader.enabled ? '#334155' : '#D1D5DB')}`,
-                        fontSize: '9px', fontWeight: 700, cursor: 'pointer', ...mono,
-                        display: 'flex', alignItems: 'center', gap: '4px',
-                      }}
-                    >
-                      <span>{isSelected ? '✓' : '+'}</span>
-                      <span>{i.symbol}</span>
-                    </button>
-                  );
-                })}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {/* LEFT: Autotrader column */}
+                <div>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#C8F135', letterSpacing: '1px', marginBottom: '6px', padding: '4px 8px', backgroundColor: '#1C3A5E', borderRadius: '3px' }}>
+                    🤖 AUTOTRADER EVALUATION SET (max 10)
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '260px', overflowY: 'auto', padding: '6px', backgroundColor: autotrader.enabled ? '#1E293B' : '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '3px' }}>
+                    {INSTRUMENT_UNIVERSE.map(i => {
+                      const isAutotrader = (autotrader.selectedInstruments || []).includes(i.symbol);
+                      const isBrokerTradeable = brokerAccountInstruments.size === 0 || brokerAccountInstruments.has(i.symbol.replace('/', '_'));
+                      const atCap = !isAutotrader && (autotrader.selectedInstruments?.length || 0) >= 10;
+                      const canAdd = isBrokerTradeable && !atCap;
+                      return (
+                        <div key={i.symbol} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: '9px', fontWeight: 700, ...mono, color: autotrader.enabled ? '#E2E8F0' : '#0F172A', whiteSpace: 'nowrap' }}>
+                              {i.symbol}
+                            </span>
+                            {!isBrokerTradeable && (
+                              <span style={{ fontSize: '7px', color: '#F97316', backgroundColor: '#431407', padding: '1px 4px', borderRadius: '2px', whiteSpace: 'nowrap' }}>
+                                NOT TRADEABLE
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleToggleInstrument(i.symbol, 'autotrader')}
+                            disabled={!isAutotrader && !canAdd}
+                            style={{
+                              padding: '2px 8px',
+                              backgroundColor: isAutotrader ? '#16A34A' : (canAdd ? (autotrader.enabled ? '#0F172A' : '#FFFFFF') : '#F1F5F9'),
+                              color: isAutotrader ? '#FFFFFF' : (canAdd ? (autotrader.enabled ? '#94A3B8' : '#475569') : '#CBD5E1'),
+                              border: `1px solid ${isAutotrader ? '#16A34A' : (canAdd ? (autotrader.enabled ? '#334155' : '#D1D5DB') : '#E2E8F0')}`,
+                              fontSize: '8px', fontWeight: 700, cursor: (!isAutotrader && !canAdd) ? 'not-allowed' : 'pointer', ...mono,
+                              whiteSpace: 'nowrap', flexShrink: 0,
+                            }}
+                            title={!isBrokerTradeable ? 'Not available on your OANDA account' : atCap ? 'Remove an instrument first (max 10)' : ''}
+                          >
+                            {isAutotrader ? '✓ IN' : (atCap ? 'CAP' : (isBrokerTradeable ? '+ ADD' : 'N/A'))}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* RIGHT: Watchlist column */}
+                <div>
+                  <div style={{ fontSize: '9px', fontWeight: 800, color: '#94A3B8', letterSpacing: '1px', marginBottom: '6px', padding: '4px 8px', backgroundColor: '#1E293B', borderRadius: '3px' }}>
+                    👁 WATCHLIST (OBSERVE ONLY — never auto-trades)
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '260px', overflowY: 'auto', padding: '6px', backgroundColor: autotrader.enabled ? '#1E293B' : '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '3px' }}>
+                    {INSTRUMENT_UNIVERSE.map(i => {
+                      const isWatchlisted = ((autotrader as any).watchlist || []).includes(i.symbol);
+                      return (
+                        <div key={i.symbol} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                          <span style={{ fontSize: '9px', fontWeight: 700, ...mono, color: autotrader.enabled ? '#E2E8F0' : '#0F172A', flex: 1 }}>
+                            {i.symbol}
+                          </span>
+                          <button
+                            onClick={() => handleToggleInstrument(i.symbol, 'watchlist')}
+                            style={{
+                              padding: '2px 8px',
+                              backgroundColor: isWatchlisted ? '#1C3A5E' : (autotrader.enabled ? '#0F172A' : '#FFFFFF'),
+                              color: isWatchlisted ? '#C8F135' : (autotrader.enabled ? '#94A3B8' : '#475569'),
+                              border: `1px solid ${isWatchlisted ? '#3B82F6' : (autotrader.enabled ? '#334155' : '#D1D5DB')}`,
+                              fontSize: '8px', fontWeight: 700, cursor: 'pointer', ...mono,
+                              whiteSpace: 'nowrap', flexShrink: 0,
+                            }}
+                          >
+                            {isWatchlisted ? '👁 ON' : '+ WATCH'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontSize: '8px', color: '#64748B', marginTop: '6px' }}>
+                ⚠ Only instruments verified by your OANDA account can be added to the autotrader set. Watchlist instruments are observed but never auto-traded.
               </div>
             </div>
 
@@ -2065,6 +2221,82 @@ function TradePageInner() {
             {/* Chart */}
             <div style={{ flex: 1, backgroundColor: chartTheme === 'light' ? '#FFFFFF' : '#0A0D12' }}>
               <TradingViewChart symbol={chartModalInstrument.tvSymbol} interval={chartModalTimeframe} theme={chartTheme} height={600} showSidebar />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── LIVE Confirmation Modal ───────────────────────────────────────────── */}
+      {showLiveConfirmModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={handleCancelLive}
+        >
+          <div
+            style={{
+              backgroundColor: '#0F172A',
+              border: '2px solid #DC2626',
+              borderRadius: '8px',
+              padding: '36px 40px',
+              maxWidth: '480px',
+              width: '90vw',
+              boxShadow: '0 0 40px rgba(220,38,38,0.5)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: '24px', fontWeight: 800, color: '#DC2626', ...mono, letterSpacing: '2px', marginBottom: '8px' }}>
+              ⚡ ACTIVATE LIVE TRADING
+            </div>
+            <div style={{ fontSize: '11px', color: '#94A3B8', marginBottom: '24px', lineHeight: 1.6 }}>
+              You are about to switch from <strong style={{ color: '#FCD34D' }}>PAPER</strong> to{' '}
+              <strong style={{ color: '#DC2626' }}>LIVE</strong> mode.
+            </div>
+            <div style={{
+              backgroundColor: '#1C0A0A', border: '1px solid #7F1D1D',
+              borderRadius: '6px', padding: '16px', marginBottom: '24px',
+              fontSize: '11px', color: '#FCA5A5', lineHeight: 1.7,
+            }}>
+              <div>🔴 <strong>Real orders</strong> will be submitted to your OANDA broker account.</div>
+              <div>🔴 <strong>Real money</strong> is at risk. Losses will not be simulated.</div>
+              <div>🔴 All risk rules apply, but market conditions may cause slippage.</div>
+              <div style={{ marginTop: '8px', color: '#FCD34D' }}>
+                From: <strong>PAPER</strong> → To: <strong>LIVE</strong>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                id="btn-confirm-live"
+                onClick={handleConfirmLive}
+                disabled={autoToggling}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: '#DC2626', color: '#FFFFFF',
+                  border: 'none', borderRadius: '4px',
+                  fontSize: '12px', fontWeight: 800, ...mono,
+                  letterSpacing: '1px', cursor: autoToggling ? 'wait' : 'pointer',
+                  opacity: autoToggling ? 0.7 : 1,
+                  boxShadow: '0 0 16px rgba(220,38,38,0.6)',
+                }}
+              >
+                {autoToggling ? 'ACTIVATING...' : 'CONFIRM: GO LIVE'}
+              </button>
+              <button
+                id="btn-cancel-live"
+                onClick={handleCancelLive}
+                style={{
+                  flex: 1, padding: '14px',
+                  backgroundColor: 'transparent', color: '#94A3B8',
+                  border: '1px solid #334155', borderRadius: '4px',
+                  fontSize: '12px', fontWeight: 700, ...mono,
+                  cursor: 'pointer',
+                }}
+              >
+                CANCEL
+              </button>
             </div>
           </div>
         </div>
