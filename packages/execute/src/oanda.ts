@@ -102,6 +102,26 @@ export function getOandaApiKey(): string {
   return process.env.OANDA_API_KEY || process.env.OANDA_API_TOKEN || '';
 }
 
+async function formatOandaError(response: Response, prefix: string): Promise<string> {
+  try {
+    const text = await response.text();
+    if (!text) return `${prefix}: HTTP ${response.status} ${response.statusText}`;
+    let message = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.errorMessage === 'string') {
+        message = parsed.errorMessage;
+      }
+    } catch {
+      // Use raw text if not valid JSON
+    }
+    const cleanText = message.slice(0, 300).replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]');
+    return `${prefix}: HTTP ${response.status} ${response.statusText} - ${cleanText}`;
+  } catch {
+    return `${prefix}: HTTP ${response.status} ${response.statusText}`;
+  }
+}
+
 export class OandaBrokerAdapter implements BrokerAdapter {
   public readonly brokerName = 'Oandav20';
   public readonly isPaper: boolean;
@@ -247,8 +267,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        return err(new Error(`OANDA API Error (${response.status}): ${errorText}`));
+        return err(new Error(await formatOandaError(response, 'OANDA Order Submission Error')));
       }
 
       const rawData = await response.json();
@@ -296,7 +315,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         }
       });
       if (!response.ok) {
-        return err(new Error(`OANDA Cancel Error: ${response.statusText}`));
+        return err(new Error(await formatOandaError(response, 'OANDA Cancel Error')));
       }
       return ok(undefined);
     } catch (e: any) {
@@ -315,7 +334,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         }
       });
       if (!response.ok) {
-        return err(new Error(`OANDA GetPositions Error: ${response.statusText}`));
+        return err(new Error(await formatOandaError(response, 'OANDA GetPositions Error')));
       }
       const rawData = await response.json();
       const parsed = OandaPositionsResponseSchema.safeParse(rawData);
@@ -328,30 +347,26 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         const rawPriceStr = p.long?.averagePrice || p.short?.averagePrice || '0';
         const rawPnlStr = p.unrealizedPL || '0';
 
-        // Native parsing for entry price — no hardcoded scale 4 target. Scale and precision are preserved.
         const parsedEntry = parsePriceStringToBigInt(rawPriceStr);
         const parsedPnl = parsePriceStringToBigInt(rawPnlStr, 2);
 
-        // Derive quote currency from instrument e.g. GBP_USD -> USD, EUR_JPY -> JPY
         const pairParts = p.instrument.split('_');
         const quoteCurrency = pairParts.length === 2 ? pairParts[1] : 'USD';
 
         return {
           id: p.instrument,
           instrument: p.instrument.replace('_', '/'),
-          // ASSUMPTION: Units are raw integer magnitudes (scale 0).
           units: parsePriceStringToBigInt(rawUnitsStr, 0).amount,
           entryPrice: {
             price: parsedEntry.amount,
             scale: parsedEntry.scale,
             currency: quoteCurrency
           },
-          // stopLossPrice is NOT available from the /openPositions endpoint.
           stopLossPrice: undefined,
           unrealizedPnl: {
             price: parsedPnl.amount,
             scale: parsedPnl.scale,
-            currency: 'USD' // Account currency for PnL
+            currency: 'USD'
           },
           openedAt: new Date().toISOString(),
           source: 'oanda.rest.v3',
@@ -375,7 +390,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         }
       });
       if (!response.ok) {
-        return err(new Error(`OANDA GetAccountState Error: ${response.statusText}`));
+        return err(new Error(await formatOandaError(response, 'OANDA GetAccountState Error')));
       }
       const rawData = await response.json();
       const parsed = OandaAccountSummarySchema.safeParse(rawData);
@@ -404,8 +419,38 @@ export class OandaBrokerAdapter implements BrokerAdapter {
   }
 
   /**
+   * Fetches tradeable instrument names for this account from OANDA GET /v3/accounts/{id}/instruments.
+   * Returns a Set of OANDA instrument IDs (e.g. Set { "GBP_USD", "EUR_USD", "XAU_USD", "SPX500_USD" }).
+   */
+  public async getAccountInstruments(): Promise<Result<Set<string>>> {
+    if (!this.config.apiKey || !this.config.accountId) {
+      return err(new Error('OANDA getAccountInstruments: API key or account ID is unconfigured.'));
+    }
+    try {
+      const response = await fetch(`${this.baseUrl}/accounts/${this.config.accountId}/instruments`, {
+        headers: { Authorization: `Bearer ${this.config.apiKey}` }
+      });
+      if (!response.ok) {
+        return err(new Error(await formatOandaError(response, 'OANDA getAccountInstruments')));
+      }
+      const data = await response.json() as { instruments?: Array<{ name: string }> };
+      if (!data || !Array.isArray(data.instruments)) {
+        return err(new Error('OANDA getAccountInstruments: Missing instruments array in response'));
+      }
+      const set = new Set<string>();
+      for (const inst of data.instruments) {
+        if (inst.name) set.add(inst.name);
+      }
+      return ok(set);
+    } catch (e: any) {
+      return err(new Error(`OANDA getAccountInstruments Exception: ${e.message}`));
+    }
+  }
+
+  /**
    * Fetches live mid prices for the given instruments from the OANDA pricing API.
-   * Returns a map of instrument (e.g. "GBP_USD") -> mid price string (e.g. "1.3142").
+   * Accepts OANDA instrument IDs directly (e.g. ["GBP_USD", "SPX500_USD"]).
+   * Returns a map of OANDA instrument ID -> mid price string (e.g. "1.3142").
    * Returns err() if the API key is missing, the request fails, or any instrument is absent.
    */
   public async getLivePrices(instruments: string[]): Promise<Result<Record<string, string>>> {
@@ -416,8 +461,9 @@ export class OandaBrokerAdapter implements BrokerAdapter {
       return ok({});
     }
     try {
-      // OANDA pricing API: GET /v3/accounts/{id}/pricing?instruments=GBP_USD,EUR_USD,...
-      const instrumentList = instruments.map((i) => i.replace('/', '_')).join(',');
+      // Clean and normalize instrument list — handles both OANDA IDs ("GBP_USD") and display symbols ("GBP/USD")
+      const oandaIds = instruments.map((i) => i.replace('/', '_'));
+      const instrumentList = oandaIds.join(',');
       const response = await fetch(
         `${this.baseUrl}/accounts/${this.config.accountId}/pricing?instruments=${encodeURIComponent(instrumentList)}`,
         {
@@ -425,7 +471,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         }
       );
       if (!response.ok) {
-        return err(new Error(`OANDA getLivePrices: HTTP ${response.status} ${response.statusText}`));
+        return err(new Error(await formatOandaError(response, 'OANDA getLivePrices')));
       }
       const rawData = (await response.json()) as any;
       if (!rawData || !Array.isArray(rawData.prices)) {
@@ -434,20 +480,16 @@ export class OandaBrokerAdapter implements BrokerAdapter {
       const result: Record<string, string> = {};
       for (const p of rawData.prices) {
         if (!p.instrument) continue;
-        // Use mid between best bid and ask, or 'closeoutBid' / 'closeoutAsk' if available
         const bid = parseFloat(p.bids?.[0]?.price || p.closeoutBid || '0');
         const ask = parseFloat(p.asks?.[0]?.price || p.closeoutAsk || '0');
         if (bid > 0 && ask > 0) {
           const mid = (bid + ask) / 2;
-          // Determine appropriate decimal places from the price itself
           const midStr = mid.toPrecision(7).replace(/\.?0+$/, '');
           result[p.instrument] = mid.toFixed(Math.max(2, (midStr.split('.')[1] || '').length));
         }
       }
       // Verify all requested instruments were returned
-      const missing = instruments
-        .map((i) => i.replace('/', '_'))
-        .filter((i) => !(i in result));
+      const missing = oandaIds.filter((id) => !(id in result));
       if (missing.length > 0) {
         return err(new Error(`OANDA getLivePrices: Missing prices for: ${missing.join(', ')}`));
       }

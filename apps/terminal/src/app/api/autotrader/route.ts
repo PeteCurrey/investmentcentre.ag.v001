@@ -7,6 +7,7 @@ import {
 } from '@meridian/core';
 import { requestTransition, AutotraderMode } from '@meridian/core';
 import { requireSession } from '../../../lib/auth';
+import { getInstrument } from '../../../lib/instruments';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 // Re-exported so the UI can import from a single location.
@@ -102,6 +103,22 @@ export async function POST(request: Request) {
   }
 
   // Handle config-only update (no mode change).
+  if (body.selectedInstruments !== undefined) {
+    const invalidList = body.selectedInstruments.filter(sym => {
+      const inst = getInstrument(sym);
+      return !inst || !inst.oandaTradeable;
+    });
+    if (invalidList.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `INVALID_INSTRUMENTS: The following instruments are not tradeable for automated execution: [${invalidList.join(', ')}].`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   const updated = await writeAutotraderConfig({
     ...(body.selectedInstruments !== undefined && {
       selectedInstruments: body.selectedInstruments,

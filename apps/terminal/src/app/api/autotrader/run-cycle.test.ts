@@ -88,15 +88,15 @@ describe('runCycle() Integration Tests', () => {
     expect(db.cycleLogs.some(l => l.reason.includes('TIER_4_ENABLED'))).toBe(true);
   });
 
-  it('missing quote produces FEED_OFFLINE / SKIPPED and no order', async () => {
+  it('untradeable instrument produces SKIPPED and no order', async () => {
     const db = getMockDb();
-    db.config.selectedInstruments = ['SPX 500']; // Instrument with no OANDA feed
+    db.config.selectedInstruments = ['NVDA']; // Instrument not tradeable on OANDA
 
     const result = await runCycle('test-cycle-no-feed');
     expect(result.success).toBe(true);
 
-    // Should skip with feed offline message
-    expect(db.cycleLogs.some(l => l.action === 'SKIPPED' && l.reason.includes('No live price feed'))).toBe(true);
+    // Should skip with non-tradeable message
+    expect(db.cycleLogs.some(l => l.action === 'SKIPPED' && l.reason.includes('non-tradeable'))).toBe(true);
   });
 
   it('realised losses past daily limit rejects with DAILY_LOSS_LIMIT_EXCEEDED', async () => {

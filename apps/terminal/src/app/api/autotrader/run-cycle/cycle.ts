@@ -27,6 +27,11 @@ import {
   getSupabaseServiceClient,
   assertSchemaComplete,
 } from '@meridian/core';
+import {
+  getInstrument,
+  getOandaId,
+  getDisplaySymbol,
+} from '../../../../lib/instruments';
 import crypto from 'crypto';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -42,9 +47,11 @@ export interface CycleResult {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const getDecimalPlaces = (instrument: string): number => {
+  const inst = getInstrument(instrument);
+  if (inst) return inst.digits;
   if (instrument.includes('JPY')) return 3;
   if (instrument.startsWith('XAU') || instrument.startsWith('XAG')) return 2;
-  if (instrument === 'SPX 500' || instrument === 'SPX500_USD') return 1;
+  if (instrument === 'SPX500' || instrument === 'SPX 500' || instrument === 'SPX500_USD') return 1;
   return 5;
 };
 
@@ -186,129 +193,165 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       highWaterMarkUpdatedAt: new Date().toISOString(),
     });
 
+    // ── 7.5. Fetch OANDA account tradeable instruments ────────────────────────
+    let accountInstruments: Set<string> | null = null;
+    const accountInstResult = await adapter.getAccountInstruments();
+    if (accountInstResult.success) {
+      accountInstruments = accountInstResult.value;
+    }
+
     // ── 8. Evaluate each active instrument ────────────────────────────────────
     const activeInstruments =
       config.selectedInstruments.length > 0
         ? config.selectedInstruments
         : ['GBP/USD', 'EUR/USD', 'XAU/USD'];
 
-    // Fetch live spot prices via OANDA pricing API
-    // DATA INTEGRITY RULE 2: No hardcoded fallback price constants.
-    const oandaInstruments = activeInstruments
-      .filter((s) => !['SPX 500', 'WTI Oil', 'BTC/USD'].includes(s)) // OANDA FX + metals only
-      .map((s) => s.replace('/', '_'));
-
-    let oandaPrices: Record<string, string> = {};
-    if (oandaInstruments.length > 0) {
-      const pricesResult = await adapter.getLivePrices(oandaInstruments.map((i) => i.replace('_', '/')));
-      if (!pricesResult.success) {
-        await insertCycleLog({
-          cycleId,
-          instrument: null,
-          action: 'ERROR',
-          reason: `OANDA pricing fetch failed: ${pricesResult.error.message}`,
-          orderId: null,
-        });
-        return {
-          success: false,
-          reason: `OANDA pricing fetch failed: ${pricesResult.error.message}`,
-          mode,
-          cycleId,
-        };
-      }
-      oandaPrices = pricesResult.value;
-    }
-
     const executedLogs: string[] = [];
 
-    for (const symbol of activeInstruments) {
-      const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    // Filter candidate instruments by tradeability and resolve exact OANDA IDs
+    const validCandidateOandaIds: string[] = [];
+    const skippedPreflightMap = new Set<string>();
 
-      // DATA INTEGRITY RULE 2: Reject instruments with no live price feed.
-      if (['SPX 500', 'WTI Oil', 'BTC/USD'].includes(symbol)) {
+    for (const rawSymbol of activeInstruments) {
+      const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const displaySymbol = getDisplaySymbol(rawSymbol);
+      const inst = getInstrument(rawSymbol);
+      const oandaId = inst?.oandaId || getOandaId(rawSymbol);
+
+      // Check 1: Master universe tradeability flag (e.g. US_STOCK, UK_STOCK, CRYPTO non-tradeable)
+      if (inst && !inst.oandaTradeable) {
+        skippedPreflightMap.add(rawSymbol);
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `No live price feed configured for ${symbol}. Trading requires a real data source.`,
+          reason: `[${displaySymbol}] (${inst.assetClass}) is marked non-tradeable on OANDA accounts.`,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: No live price feed configured.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: Non-tradeable asset class (${inst.assetClass}).`);
+        continue;
+      }
+
+      // Check 2: OANDA account-level tradeability list
+      if (accountInstruments && oandaId && !accountInstruments.has(oandaId)) {
+        skippedPreflightMap.add(rawSymbol);
+        await insertCycleLog({
+          cycleId,
+          instrument: displaySymbol,
+          action: 'SKIPPED',
+          reason: `[${displaySymbol}] Instrument '${oandaId}' is not offered on OANDA account ${accountId}.`,
+          orderId: null,
+        });
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: Not offered on OANDA account.`);
+        continue;
+      }
+
+      if (oandaId) {
+        validCandidateOandaIds.push(oandaId);
+      }
+    }
+
+    // Fetch prices for valid tradeable candidates (batch with resilient fallback)
+    let oandaPrices: Record<string, string> = {};
+    if (validCandidateOandaIds.length > 0) {
+      const batchResult = await adapter.getLivePrices(validCandidateOandaIds);
+      if (batchResult.success) {
+        oandaPrices = batchResult.value;
+      } else {
+        // Fallback: fetch prices per-instrument individually so 1 bad quote never kills the cycle
+        for (const oandaId of validCandidateOandaIds) {
+          const singleRes = await adapter.getLivePrices([oandaId]);
+          if (singleRes.success) {
+            Object.assign(oandaPrices, singleRes.value);
+          }
+        }
+      }
+    }
+
+    for (const rawSymbol of activeInstruments) {
+      const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const displaySymbol = getDisplaySymbol(rawSymbol);
+      const inst = getInstrument(rawSymbol);
+      const oandaId = inst?.oandaId || getOandaId(rawSymbol);
+
+      // Skip if pre-flight tradeability check already logged a SKIPPED entry
+      if (skippedPreflightMap.has(rawSymbol)) {
         continue;
       }
 
       // Resolve spot price from OANDA live prices
-      const oandaKey = symbol.replace('/', '_');
-      const spotPriceStr = oandaPrices[oandaKey];
+      const spotPriceStr = oandaId ? oandaPrices[oandaId] : undefined;
       if (!spotPriceStr) {
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `Live OANDA price unavailable for ${symbol} — skipping to prevent trading at stale data.`,
+          reason: `Live OANDA price unavailable for ${displaySymbol} (${oandaId}) — skipping to prevent trading at stale data.`,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: OANDA price unavailable.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: OANDA price unavailable.`);
         continue;
       }
+
       const spotPrice = parseFloat(spotPriceStr);
       if (!isFinite(spotPrice) || spotPrice <= 0) {
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `Invalid OANDA price '${spotPriceStr}' for ${symbol}.`,
+          reason: `Invalid OANDA price '${spotPriceStr}' for ${displaySymbol}.`,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: Invalid price '${spotPriceStr}'.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: Invalid price '${spotPriceStr}'.`);
         continue;
       }
 
       // ── Signal Generation & Volatility ATR Protection ───────────────────────
-      // Fetch M15 and H1 candles from OANDA
-      const m15Result = await adapter.getCandles(symbol, 'M15', 50);
-      const h1Result = await adapter.getCandles(symbol, 'H1', 50);
+      // Fetch M15 and H1 candles using exact OANDA ID
+      const candleTarget = oandaId || displaySymbol;
+      const m15Result = await adapter.getCandles(candleTarget, 'M15', 50);
+      const h1Result = await adapter.getCandles(candleTarget, 'H1', 50);
 
       if (!m15Result.success) {
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `Candles fetch failed (M15) for ${symbol}: ${m15Result.error.message}`,
+          reason: `Candles fetch failed (M15) for ${displaySymbol}: ${m15Result.error.message}`,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: M15 candles fetch failed.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: M15 candles fetch failed.`);
         continue;
       }
 
       if (!h1Result.success) {
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `Candles fetch failed (H1) for ${symbol}: ${h1Result.error.message}`,
+          reason: `Candles fetch failed (H1) for ${displaySymbol}: ${h1Result.error.message}`,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: H1 candles fetch failed.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: H1 candles fetch failed.`);
         continue;
       }
 
       const m15Bars = m15Result.value;
       const h1Bars = h1Result.value;
 
-      // Generate signal via @meridian/signals module (Rule 6 compliant)
-      const signal = generateSignal(symbol, m15Bars, h1Bars);
+      // Generate signal via @meridian/signals module
+      const signal = generateSignal(displaySymbol, m15Bars, h1Bars);
 
       if (signal.direction === 'NEUTRAL') {
         const inputCitations = signal.inputs.map(i => `${i.metric}=${i.value}`).join(', ');
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `Signal Engine: NEUTRAL for ${symbol} (${signal.strategy}). Observations: [${inputCitations}]`,
+          reason: `Signal Engine: NEUTRAL for ${displaySymbol} (${signal.strategy}). Observations: [${inputCitations}]`,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: Signal NEUTRAL.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: Signal NEUTRAL.`);
         continue;
       }
 
@@ -317,8 +360,8 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       const inputCitations = signal.inputs.map(i => `${i.metric}=${i.value} (${i.id})`).join(' | ');
       const signalReason = `Signal Engine (${signal.strategy}, Confidence: ${signal.confidence}%, Dir: ${direction}) | ATR Stop: ${protectionPips.toFixed(1)} pips | Inputs: [${inputCitations}]`;
 
-      const dp = getDecimalPlaces(symbol);
-      const pipVal = getPipValue(symbol);
+      const dp = inst?.digits ?? getDecimalPlaces(displaySymbol);
+      const pipVal = getPipValue(displaySymbol);
       const tpOffset = direction === 'BUY' ? (config.riskProfile.tpPips * pipVal) : -(config.riskProfile.tpPips * pipVal);
       const trailingDistance = config.riskProfile.trailingDistancePips * pipVal;
 
@@ -337,7 +380,7 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       const tpStr = (spotPrice + tpOffset).toFixed(dp);
       const trailingStr = trailingDistance.toFixed(dp);
 
-      const parts = symbol.split('/');
+      const parts = displaySymbol.split('/');
       const quoteCurrency = parts.length === 2 ? parts[1] : 'USD';
 
       const entryParsed = parsePriceStringToBigInt(entryStr);
@@ -350,11 +393,11 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         ? createPrice(tpParsed.amount, tpParsed.scale, quoteCurrency)
         : undefined;
 
-      const accountRiskState = await buildAccountRiskState(adapter, accountId, { instrument: symbol });
+      const accountRiskState = await buildAccountRiskState(adapter, accountId, { instrument: displaySymbol });
 
       // Risk-Derived Position Sizing
       const sizeResult = calculatePositionSize(
-        { instrument: symbol, entryPrice, stopLossPrice },
+        { instrument: displaySymbol, entryPrice, stopLossPrice },
         FTMO_STANDARD_PROFILE,
         accountRiskState,
         config.lotUnits
@@ -363,26 +406,25 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       if (sizeResult.units <= 0n) {
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `POSITION_SIZE_BELOW_MINIMUM: Computed position size is 0 units for ${symbol}.`,
+          reason: `POSITION_SIZE_BELOW_MINIMUM: Computed position size is 0 units for ${displaySymbol}.`,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: POSITION_SIZE_BELOW_MINIMUM.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: POSITION_SIZE_BELOW_MINIMUM.`);
         continue;
       }
 
-      // IDEMPOTENCY KEY: deterministic from (accountId, symbol, cycleId).
-      // OANDA rejects duplicate clientExtensions.id — second layer of protection.
+      // IDEMPOTENCY KEY: deterministic from (accountId, displaySymbol, cycleId).
       const intentId = crypto.createHash('sha256')
-        .update(`${accountId}:${symbol}:${cycleId}`)
+        .update(`${accountId}:${displaySymbol}:${cycleId}`)
         .digest('hex')
         .slice(0, 36);
 
       const intent: OrderIntent = {
         id: intentId,
         accountId,
-        instrument: symbol,
+        instrument: displaySymbol,
         direction,
         units: sizeResult.units,
         entryPrice,
@@ -397,7 +439,7 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       // ── Persist gate decision (every evaluation, every mode) ──────────────
       await insertGateDecision({
         orderIntentId: intentId,
-        instrument: symbol,
+        instrument: displaySymbol,
         direction,
         units: sizeResult.units,
         entryPrice: entryStr,
@@ -434,12 +476,12 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         const rejectReason = `RiskGate REJECTED (${decision.reasonCode ?? 'RISK_LIMIT'}) | ${signalReason}`;
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'REJECTED',
           reason: rejectReason,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} REJECTED: ${rejectReason}`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} REJECTED: ${rejectReason}`);
         continue;
       }
 
@@ -448,12 +490,12 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         const observeReason = `[OBSERVE] Signal evaluated, not submitted. ${signalReason}`;
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'OBSERVE_EVAL',
           reason: observeReason,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} OBSERVE_EVAL: ${observeReason}`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} OBSERVE_EVAL: ${observeReason}`);
         continue;
       }
 
@@ -462,12 +504,12 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         const paperReason = `[PAPER] Simulated fill at ${entryStr}. ${signalReason}`;
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'PAPER_FILL',
           reason: paperReason,
           orderId: `PAPER-${intentId}`,
         });
-        executedLogs.push(`[${logTime}] ${symbol} PAPER_FILL: ${paperReason}`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} PAPER_FILL: ${paperReason}`);
         continue;
       }
 
@@ -478,12 +520,12 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
           : `[Unexpected mode: ${mode}] Defaulting to non-submission.`;
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'SKIPPED',
           reason: blockedReason,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} SKIPPED: ${blockedReason}`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: ${blockedReason}`);
         continue;
       }
 
@@ -493,12 +535,12 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         const errReason = `OANDA Submission Error: ${submitResult.error.message}`;
         await insertCycleLog({
           cycleId,
-          instrument: symbol,
+          instrument: displaySymbol,
           action: 'ERROR',
           reason: errReason,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${symbol} ERROR: ${errReason}`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} ERROR: ${errReason}`);
         continue;
       }
 
@@ -518,26 +560,22 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
 
       await insertCycleLog({
         cycleId,
-        instrument: symbol,
+        instrument: displaySymbol,
         action: 'EXECUTED',
         reason: fullReasoning,
         orderId: filledOrder.id,
       });
 
-      executedLogs.push(`[${logTime}] ${symbol} EXECUTED: fill ${fillPriceVal} orderId=${filledOrder.id}`);
+      executedLogs.push(`[${logTime}] ${displaySymbol} EXECUTED: fill ${fillPriceVal} orderId=${filledOrder.id}`);
     }
 
     // ── 9. Break-even sweep — LIVE + TIER_4_ENABLED only ─────────────────────
-    // DEFECT FIX: checkBreakEven was previously called unconditionally, meaning it
-    // would PUT stop-loss modifications to OANDA in OBSERVE and PAPER modes.
-    // It now only runs when mode === 'LIVE' && tier4Enabled.
     if (canSubmit) {
       await checkBreakEven(
         adapter, accountId, config.riskProfile.breakEvenTriggerPips,
         apiKey, env, cycleId, executedLogs
       );
     } else if (config.riskProfile.breakEvenTriggerPips > 0) {
-      // In OBSERVE/PAPER: log what would happen but send nothing.
       await insertCycleLog({
         cycleId,
         instrument: null,
@@ -563,8 +601,6 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
 }
 
 // ─── Break-Even Helper ────────────────────────────────────────────────────────
-// Only called when mode === 'LIVE' && tier4Enabled (enforced by caller).
-// Only modifies trades placed by this system (joined against gate_decisions).
 
 async function checkBreakEven(
   adapter: OandaBrokerAdapter,
@@ -596,8 +632,6 @@ async function checkBreakEven(
 
     if (!Array.isArray(data.trades)) return;
 
-    // Filter to system-placed trades only: join against gate_decisions by tradeId.
-    // Manual/discretionary positions do not have gate_decisions rows.
     const supabase = getSupabaseServiceClient();
     const openTradeIds = data.trades.map(t => t.id);
 
@@ -611,18 +645,17 @@ async function checkBreakEven(
     }
 
     for (const trade of data.trades) {
-      // Skip trades not placed by this system
       if (!systemTradeIds.has(trade.id)) continue;
 
-      const instrument = trade.instrument.replace('_', '/');
-      const pipVal = getPipValue(instrument);
-      const dp = getDecimalPlaces(instrument);
+      const displaySymbol = getDisplaySymbol(trade.instrument);
+      const oandaId = trade.instrument;
+      const pipVal = getPipValue(displaySymbol);
+      const dp = getDecimalPlaces(displaySymbol);
       const entryPrice = parseFloat(trade.price);
       const units = parseFloat(trade.currentUnits);
       const isBuy = units > 0;
 
-      // Fetch current mid price for this instrument
-      const priceResult = await adapter.getLivePrices([instrument]);
+      const priceResult = await adapter.getLivePrices([oandaId]);
       if (!priceResult.success) continue;
       const currentMid = parseFloat(Object.values(priceResult.value)[0] || '0');
       if (!currentMid || !entryPrice) continue;
@@ -633,16 +666,12 @@ async function checkBreakEven(
 
       if (floatingPips < triggerPips) continue;
 
-      // Check if SL is already at or better than entry
       const currentSl = trade.stopLossOrder ? parseFloat(trade.stopLossOrder.price) : null;
       const alreadyAtBE = currentSl !== null && (
         isBuy ? currentSl >= entryPrice : currentSl <= entryPrice
       );
       if (alreadyAtBE) continue;
 
-      // Move SL to entry price (break-even) via the modify-trade path
-      // to ensure RiskGate traversal. Break-even tightens risk (reducing loss exposure),
-      // which modify-trade allows as BREAK_EVEN_SERVER_VERIFIED.
       const bePriceStr = entryPrice.toFixed(dp);
       const bePayload = { stopLoss: { timeInForce: 'GTC', price: bePriceStr } };
 
@@ -656,17 +685,17 @@ async function checkBreakEven(
       if (beRes.ok) {
         await insertCycleLog({
           cycleId,
-          instrument,
+          instrument: displaySymbol,
           action: 'BREAK_EVEN_TRIGGERED',
           reason: `SL moved to entry ${bePriceStr} (floating ${floatingPips.toFixed(1)} pips >= trigger ${triggerPips} pips). TradeId: ${trade.id}`,
           orderId: trade.id,
         });
-        executedLogs.push(`[${logTime}] ${instrument} BREAK_EVEN_TRIGGERED: SL → ${bePriceStr} (tradeId=${trade.id})`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} BREAK_EVEN_TRIGGERED: SL → ${bePriceStr} (tradeId=${trade.id})`);
       } else {
         const errText = await beRes.text();
         await insertCycleLog({
           cycleId,
-          instrument,
+          instrument: displaySymbol,
           action: 'ERROR',
           reason: `BREAK_EVEN failed for tradeId ${trade.id}: ${errText}`,
           orderId: trade.id,
