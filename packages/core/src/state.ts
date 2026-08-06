@@ -2,10 +2,9 @@
  * packages/core/src/state.ts
  *
  * Typed read/write functions for the five meridian autotrader tables.
- * Server-side only. Uses the service-role client for writes to gate_decisions
- * and mode_transitions; the anon client for all reads and config upserts.
+ * Server-side only. Uses the service-role client for all database operations.
  */
-import { getSupabaseClient, getSupabaseServiceClient } from './db';
+import { getSupabaseServiceClient } from './db';
 import { createLogger } from './logger';
 
 const log = createLogger('state');
@@ -94,7 +93,7 @@ function rowToConfig(row: AutotraderStateRow): AutotraderConfig {
  */
 export async function readAutotraderConfig(): Promise<AutotraderConfig | null> {
   try {
-    const sb = getSupabaseClient();
+    const sb = getSupabaseServiceClient();
     const { data, error } = await sb
       .schema('meridian')
       .from('autotrader_state')
@@ -161,7 +160,7 @@ export async function writeAutotraderConfig(
       updated_by: patch.updatedBy ?? 'system',
     };
 
-    const sb = getSupabaseClient();
+    const sb = getSupabaseServiceClient();
     const { data, error } = await sb
       .schema('meridian')
       .from('autotrader_state')
@@ -372,7 +371,7 @@ export async function readCycleLogTradeMap(): Promise<
   > = {};
 
   try {
-    const sb = getSupabaseClient();
+    const sb = getSupabaseServiceClient();
     const { data, error } = await sb
       .schema('meridian')
       .from('cycle_log')

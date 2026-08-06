@@ -22,7 +22,15 @@ function resolveSupabaseUrl(): string | undefined {
   return rawUrl;
 }
 
+/**
+ * @deprecated Nothing server-side should use the unauthenticated anon key.
+ * All server-side database access must use getSupabaseServiceClient().
+ * This function delegates to getSupabaseServiceClient() if SUPABASE_SECRET_KEY is present.
+ */
 export function getSupabaseClient(): AnySupabaseClient {
+  if (process.env.SUPABASE_SECRET_KEY) {
+    return getSupabaseServiceClient();
+  }
   if (supabaseInstance) {
     return supabaseInstance;
   }
