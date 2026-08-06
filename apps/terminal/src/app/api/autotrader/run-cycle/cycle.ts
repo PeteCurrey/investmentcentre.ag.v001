@@ -99,9 +99,35 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
   }
 
   // ── 0b. Assert schema completeness ────────────────────────────────────────
-  // If any required table is missing (unapplied migration), throw immediately.
-  // This surfaces clearly in Vercel logs rather than masking as CYCLE_IN_FLIGHT.
-  await assertSchemaComplete();
+  // Checks BOTH tables AND required columns (e.g. autotrader_state.enabled).
+  // A mismatch means a migration was not applied to production.
+  // Must run before readAutotraderConfig — a missing column causes an unlogged throw
+  // deep in business logic rather than a named error. Wrapping here ensures a
+  // FAILED row is written to cycle_log even without a lock, so the health indicator
+  // reports the real cause.
+  try {
+    await assertSchemaComplete();
+  } catch (schemaErr: unknown) {
+    const schemaMsg = schemaErr instanceof Error ? schemaErr.message : String(schemaErr);
+    const { createLogger } = await import('@meridian/core');
+    createLogger('cycle').error('SCHEMA ASSERTION FAILED — cycle halted', {
+      cycleId,
+      error: schemaMsg,
+      errorCode: 'SCHEMA_ASSERTION_FAILED',
+    });
+    await insertCycleLog({
+      cycleId,
+      instrument: null,
+      action: 'FAILED',
+      reason: schemaMsg,
+      orderId: null,
+    }).catch(() => { /* best-effort */ });
+    return {
+      success: false,
+      reason: schemaMsg,
+      cycleId,
+    };
+  }
 
   // ── 1. Acquire execution lock ─────────────────────────────────────────────
   const lockAcquired = await acquireCycleLock(cycleId);
