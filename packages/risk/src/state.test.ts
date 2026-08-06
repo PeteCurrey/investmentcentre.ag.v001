@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildAccountRiskState, StateAdapter } from './state';
+import { buildAccountRiskState, StateAdapter, getTradingDayStart } from './state';
 
 // Mock @meridian/core's getSupabaseServiceClient and logger
 const mockSelect = vi.fn();
@@ -54,8 +54,8 @@ describe('buildAccountRiskState account_day multi-day isolation', () => {
     vi.clearAllMocks();
   });
 
-  it("sources startingDailyBalance strictly from today's row while highWaterMark uses max across days", async () => {
-    const utcToday = new Date().toISOString().substring(0, 10);
+  it("sources startingDailyBalance strictly from current trading day row while highWaterMark uses max across days", async () => {
+    const { dayDate } = getTradingDayStart();
 
     // Mock Query A (today's row) -> returns today's opening balance 10259208
     // Mock Query B (max HWM across all days) -> returns yesterday's HWM 10286814
@@ -64,7 +64,7 @@ describe('buildAccountRiskState account_day multi-day isolation', () => {
         return {
           eq: vi.fn().mockImplementation((col: string, val: string) => {
             expect(col).toBe('day_date');
-            expect(val).toBe(utcToday);
+            expect(val).toBe(dayDate);
             return {
               maybeSingle: async () => ({
                 data: { opening_balance: '10259208', high_water_mark: '10259508' },
@@ -96,8 +96,6 @@ describe('buildAccountRiskState account_day multi-day isolation', () => {
   });
 
   it('throws ACCOUNT_DAY_MISSING when today row creation fails and startingDailyBalance is null', async () => {
-    const utcToday = new Date().toISOString().substring(0, 10);
-
     mockSbClient.select.mockImplementation((fields: string) => {
       if (fields === 'opening_balance, high_water_mark') {
         return {

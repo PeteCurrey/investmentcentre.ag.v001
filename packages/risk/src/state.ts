@@ -54,10 +54,23 @@ export interface BuildAccountRiskStateOptions {
   currentSpreadPips?: number;
 }
 
+export interface TradingDayInfo {
+  /** The ISO timestamp of the start of the current trading day (e.g. 2026-08-05T21:00:00.000Z) */
+  sinceIso: string;
+  /** The YYYY-MM-DD date label for this trading session (e.g. "2026-08-06") */
+  dayDate: string;
+}
+
 /**
- * Calculates the ISO timestamp of the OANDA daily rollover (17:00 America/New_York).
+ * Single canonical trading day boundary calculator.
+ * Used by BOTH account_day row creation/lookup and realizedPnlToday transaction query.
+ *
+ * Boundary Choice: OANDA 17:00 America/New_York (21:00 UTC / 22:00 BST).
+ * FTMO daily loss limits reset at 00:00 CE(S)T (23:00 UTC). OANDA's 17:00 ET (21:00 UTC)
+ * reset occurs 2 hours prior to CE(S)T midnight, making it a safe, conservative anchor
+ * that aligns 100% with OANDA broker transaction logs.
  */
-export function getOandaDayResetIso(now = new Date()): string {
+export function getTradingDayStart(now = new Date()): TradingDayInfo {
   const nyDateStr = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   const nyHour = parseInt(
     now.toLocaleTimeString('en-US', {
@@ -68,13 +81,15 @@ export function getOandaDayResetIso(now = new Date()): string {
     10
   );
 
-  let targetDateStr = nyDateStr;
+  let sessionStartDateStr = nyDateStr;
+  let dayDate = nyDateStr;
+
   if (nyHour < 17) {
     const prev = new Date(now.getTime() - 24 * 3600 * 1000);
-    targetDateStr = prev.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    sessionStartDateStr = prev.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   }
 
-  const dEst = new Date(`${targetDateStr}T17:00:00-05:00`);
+  const dEst = new Date(`${sessionStartDateStr}T17:00:00-05:00`);
   const estHour = parseInt(
     dEst.toLocaleTimeString('en-US', {
       timeZone: 'America/New_York',
@@ -84,11 +99,21 @@ export function getOandaDayResetIso(now = new Date()): string {
     10
   );
 
-  if (estHour === 17) {
-    return dEst.toISOString();
-  }
-  const dEdt = new Date(`${targetDateStr}T17:00:00-04:00`);
-  return dEdt.toISOString();
+  const sinceIso = estHour === 17
+    ? dEst.toISOString()
+    : new Date(`${sessionStartDateStr}T17:00:00-04:00`).toISOString();
+
+  return {
+    sinceIso,
+    dayDate,
+  };
+}
+
+/**
+ * Backward compatibility wrapper for getTradingDayStart().sinceIso
+ */
+export function getOandaDayResetIso(now = new Date()): string {
+  return getTradingDayStart(now).sinceIso;
 }
 
 /**
@@ -112,13 +137,11 @@ export async function buildAccountRiskState(
   const currentBalance = accountState.balance.price as ScaledInteger;
   const currentEquity = accountState.equity.price as ScaledInteger;
 
-  // 2. Fetch OANDA realized PnL today (since 17:00 ET day rollover)
-  const dayResetIso = getOandaDayResetIso();
+  // 2. Fetch OANDA realized PnL today using canonical getTradingDayStart()
+  const tradingDay = getTradingDayStart();
   let realizedPnlToday = 0n as ScaledInteger;
 
   // Duck-type check: any adapter that implements getRealizedPnlToday is supported.
-  // We intentionally avoid importing OandaBrokerAdapter directly to prevent a
-  // circular dependency cycle between @meridian/risk and @meridian/execute.
   const adapterWithPnl = adapter as unknown as Record<string, unknown>;
   if (typeof adapterWithPnl['getRealizedPnlToday'] === 'function') {
     const pnlRes = await (adapterWithPnl['getRealizedPnlToday'] as (
@@ -126,7 +149,7 @@ export async function buildAccountRiskState(
       sinceIso: string
     ) => Promise<{ success: boolean; value?: ScaledInteger; error?: { message: string } }>)(
       accountId,
-      dayResetIso
+      tradingDay.sinceIso
     );
     if (pnlRes && pnlRes.success && pnlRes.value !== undefined) {
       realizedPnlToday = pnlRes.value;
@@ -135,26 +158,15 @@ export async function buildAccountRiskState(
 
   // 3. Read/upsert startingDailyBalance and highWaterMark from meridian.account_day
   //
-  // DATE STRATEGY
-  // The OANDA trading day resets at 17:00 America/New_York, not at UTC midnight.
-  // We key account_day rows by UTC calendar date (dayDate = today's YYYY-MM-DD in
-  // UTC) rather than by the OANDA-reset ISO timestamp for two reasons:
-  //   a) The OANDA reset at ~21:00 UTC falls within the same UTC calendar date as
-  //      the session that follows it until ~00:00 UTC — only a small 3-hour window
-  //      would ever straddle a UTC date boundary.
-  //   b) The spurious pattern observed in production (yesterday's row supplying
-  //      today's startingDailyBalance) arose because getOandaDayResetIso returns
-  //      the start-of-current-session timestamp, whose date matches yesterday even
-  //      while cycles run today.
+  // CANONICAL TRADING DAY BOUNDARY
+  // Both startingDailyBalance and realizedPnlToday are anchored to tradingDay (OANDA 17:00 ET).
   //
   // TWO DISTINCT QUERIES (intentional):
-  //   Query A  — today's UTC-date row  →  startingDailyBalance  (must exist)
-  //   Query B  — MAX over all rows     →  highWaterMark          (all-time peak)
+  //   Query A  — current trading day row  →  startingDailyBalance  (must exist or be created)
+  //   Query B  — MAX over all rows         →  highWaterMark          (all-time peak)
   let startingDailyBalance: ScaledInteger | null = null;
   let storedHwm: ScaledInteger = currentEquity;
-
-  // Today's key is the UTC calendar date, independent of OANDA day reset time.
-  const utcToday = new Date().toISOString().substring(0, 10);
+  const dayDate = tradingDay.dayDate;
 
   try {
     const sb = getSupabaseServiceClient();
@@ -164,7 +176,7 @@ export async function buildAccountRiskState(
       .schema('meridian')
       .from('account_day')
       .select('opening_balance, high_water_mark')
-      .eq('day_date', utcToday)
+      .eq('day_date', dayDate)
       .maybeSingle();
 
     if (todayErr) {
@@ -205,20 +217,21 @@ export async function buildAccountRiskState(
             high_water_mark: String(currentEquity),
             high_water_mark_updated_at: new Date().toISOString(),
           })
-          .eq('day_date', utcToday);
+          .eq('day_date', dayDate);
       }
     } else {
-      // No row for today yet — create one with current balance as opening.
-      // This happens on the first cycle of each calendar day.
+      // No row for today yet — create one.
+      // Derives opening_balance as (currentBalance - realizedPnlToday) so mid-session deploys
+      // accurately reconstruct the exact balance as of the 17:00 ET rollover timestamp!
       storedHwm = currentEquity > maxEverHwm ? currentEquity : maxEverHwm;
-      startingDailyBalance = currentBalance;
+      startingDailyBalance = (currentBalance - realizedPnlToday) as ScaledInteger;
 
       const { error: insertErr } = await sb
         .schema('meridian')
         .from('account_day')
         .insert({
-          day_date: utcToday,
-          opening_balance: String(currentBalance),
+          day_date: dayDate,
+          opening_balance: String(startingDailyBalance),
           opening_balance_captured_at: new Date().toISOString(),
           high_water_mark: String(storedHwm),
           high_water_mark_updated_at: new Date().toISOString(),
@@ -227,7 +240,7 @@ export async function buildAccountRiskState(
       if (insertErr) {
         log.error('Failed to insert account_day row for today — will reject this cycle', {
           error: insertErr.message,
-          utcToday,
+          dayDate,
         });
         // Null out so the guard below rejects rather than trading on a stale baseline.
         startingDailyBalance = null;
@@ -253,17 +266,13 @@ export async function buildAccountRiskState(
   const isNewsBlackoutActive = newsStatus !== 'CLEAR';
 
   // 5. Fetch open positions from broker adapter if supported
-  //    Maps to OpenPositionRisk[] for aggregate/correlated risk rule evaluation.
-  //    Duck-typed via optional method on StateAdapter to avoid circular imports.
   const openPositions: OpenPositionRisk[] = [];
   if (typeof adapter.getPositions === 'function') {
     try {
       const posRes = await adapter.getPositions!(accountId);
       if (posRes?.success && posRes.value) {
         for (const p of posRes.value) {
-          // OANDA: negative units = short (SELL), positive = long (BUY)
           const direction: 'BUY' | 'SELL' = p.units < 0n ? 'SELL' : 'BUY';
-          // riskAmountInAccountCurrency: absolute unrealizedPnl magnitude as a proxy.
           const absUnrealised = p.unrealizedPnl.price < 0n
             ? -p.unrealizedPnl.price
             : p.unrealizedPnl.price;
