@@ -140,6 +140,24 @@ export function getDisplaySymbol(symbolOrOandaId: string): string {
   return inst ? inst.symbol : symbolOrOandaId;
 }
 
+export function getDecimalPlaces(symbolOrOandaId: string): number {
+  const inst = getInstrument(symbolOrOandaId);
+  if (inst) return inst.digits;
+  const s = symbolOrOandaId.toUpperCase();
+  if (s.includes('JPY')) return 3;
+  if (s.startsWith('XAU') || s.startsWith('XAG')) return 2;
+  if (s.includes('SPX') || s.includes('NAS') || s.includes('US30') || s.includes('UK100')) return 1;
+  return 5;
+}
+
+export function getPipValue(symbolOrOandaId: string): number {
+  const s = symbolOrOandaId.toUpperCase();
+  if (s.includes('JPY')) return 0.01;
+  if (s.startsWith('XAU')) return 1.0;
+  if (s.startsWith('SPX') || s.includes('SPX500') || s.includes('NAS100') || s.includes('US30') || s.includes('UK100')) return 1.0;
+  return 0.0001;
+}
+
 export function getByOandaId(oandaId: string): Instrument | undefined {
   return getInstrument(oandaId);
 }

@@ -20,7 +20,6 @@ import {
   writeAutotraderConfig,
   insertGateDecision,
   insertCycleLog,
-  upsertAccountDay,
   getMode,
   acquireCycleLock,
   releaseCycleLock,
@@ -31,6 +30,8 @@ import {
   getInstrument,
   getOandaId,
   getDisplaySymbol,
+  getPipValue,
+  getDecimalPlaces,
 } from '../../../../lib/instruments';
 import crypto from 'crypto';
 
@@ -44,23 +45,21 @@ export interface CycleResult {
   executedLogs?: string[];
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const getDecimalPlaces = (instrument: string): number => {
-  const inst = getInstrument(instrument);
-  if (inst) return inst.digits;
-  if (instrument.includes('JPY')) return 3;
-  if (instrument.startsWith('XAU') || instrument.startsWith('XAG')) return 2;
-  if (instrument === 'SPX500' || instrument === 'SPX 500' || instrument === 'SPX500_USD') return 1;
-  return 5;
+/** Maximum stop distance as a % of entry price before a signal is rejected.
+ *  FX pairs: 5%. Index CFDs: 10% (index ATRs are legitimately larger). */
+const MAX_STOP_DISTANCE_PCT: Record<string, number> = {
+  FX: 5.0,
+  INDEX: 10.0,
+  COMMODITY: 10.0,
 };
 
-const getPipValue = (instrument: string): number => {
-  if (instrument.includes('JPY')) return 0.01;
-  if (instrument.startsWith('XAU')) return 1.0;
-  if (instrument.startsWith('SPX')) return 1.0;
-  return 0.0001;
-};
+function getMaxStopDistancePct(inst: ReturnType<typeof getInstrument>): number {
+  if (!inst) return MAX_STOP_DISTANCE_PCT.FX;
+  if (inst.assetClass === 'INDEX' || inst.assetClass === 'COMMODITY') return MAX_STOP_DISTANCE_PCT.INDEX;
+  return MAX_STOP_DISTANCE_PCT.FX;
+}
 
 // ─── Cycle Entry Point ────────────────────────────────────────────────────────
 
@@ -183,15 +182,11 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
 
     const accountState = stateResult.value;
 
-    // ── 7. Seed account_day for today if not already set ──────────────────────
-    const todayDate = new Date().toISOString().substring(0, 10);
-    void upsertAccountDay({
-      dayDate: todayDate,
-      openingBalance: accountState.balance.price,
-      openingBalanceCapturedAt: new Date().toISOString(),
-      highWaterMark: accountState.equity.price,
-      highWaterMarkUpdatedAt: new Date().toISOString(),
-    });
+    // ── 7. account_day is managed exclusively by buildAccountRiskState ─────────
+    // DO NOT call upsertAccountDay() here — it would overwrite the opening_balance
+    // baseline on every cycle, destroying daily-loss calculations.
+    // buildAccountRiskState() in @meridian/risk inserts the row on first call
+    // each day and only advances the high_water_mark monotonically thereafter.
 
     // ── 7.5. Fetch OANDA account tradeable instruments ────────────────────────
     let accountInstruments: Set<string> | null = null;
@@ -259,14 +254,42 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         oandaPrices = batchResult.value;
       } else {
         // Fallback: fetch prices per-instrument individually so 1 bad quote never kills the cycle
-        for (const oandaId of validCandidateOandaIds) {
-          const singleRes = await adapter.getLivePrices([oandaId]);
+        for (const oid of validCandidateOandaIds) {
+          const singleRes = await adapter.getLivePrices([oid]);
           if (singleRes.success) {
             Object.assign(oandaPrices, singleRes.value);
           }
         }
       }
     }
+
+    // ── Build quoteToAccountRates from live prices ────────────────────────────
+    // Account currency is GBP. For each instrument, determine how to convert
+    // the quote currency into GBP so position sizing uses correct P&L units.
+    //   • Quote = GBP (e.g. EUR/GBP, UK100/GBP) → rate = 1.0
+    //   • Quote = USD → rate = 1 / GBP_USD_price (or USD/GBP if we have it)
+    //   • Otherwise    → rate = 1.0 (conservative; logs a warning)
+    const ACCOUNT_CURRENCY = 'GBP';
+    const quoteToAccountRates: Record<string, number> = {};
+    const gbpUsdPrice = parseFloat(oandaPrices['GBP_USD'] ?? oandaPrices['GBPUSD'] ?? '0');
+    for (const oid of validCandidateOandaIds) {
+      const priceStr = oandaPrices[oid];
+      if (!priceStr) continue;
+      const instForOid = Array.from(validCandidateOandaIds)
+        .map(id => getInstrument(id))
+        .find(i => i?.oandaId === oid);
+      const parts = (instForOid?.symbol ?? '').split('/');
+      const quoteCcy = parts.length === 2 ? parts[1] : 'USD';
+      if (quoteCcy === ACCOUNT_CURRENCY) {
+        quoteToAccountRates[quoteCcy] = 1.0;
+      } else if (quoteCcy === 'USD' && gbpUsdPrice > 0) {
+        // USD quote → divide by GBP/USD rate to get USD→GBP conversion
+        quoteToAccountRates['USD'] = 1.0 / gbpUsdPrice;
+      } else {
+        quoteToAccountRates[quoteCcy] = 1.0; // fallback — conservative
+      }
+    }
+    quoteToAccountRates[ACCOUNT_CURRENCY] = 1.0; // always safe
 
     for (const rawSymbol of activeInstruments) {
       const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -393,7 +416,34 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         ? createPrice(tpParsed.amount, tpParsed.scale, quoteCurrency)
         : undefined;
 
-      const accountRiskState = await buildAccountRiskState(adapter, accountId, { instrument: displaySymbol });
+      const accountRiskState = await buildAccountRiskState(adapter, accountId, {
+        instrument: displaySymbol,
+        quoteToAccountRates,
+      });
+
+      // ── Stop distance sanity check ─────────────────────────────────────────
+      // A stop that is an implausibly large % of price indicates a unit conversion
+      // error (e.g. ATR in price units treated as pips). Reject loudly rather than
+      // silently size to zero.
+      const stopDistancePrice = Math.abs(slOffset);
+      const stopDistancePct = (stopDistancePrice / spotPrice) * 100;
+      const maxStopPct = getMaxStopDistancePct(inst);
+      if (stopDistancePct > maxStopPct) {
+        const implausibleReason =
+          `STOP_DISTANCE_IMPLAUSIBLE: stop distance $${stopDistancePrice.toFixed(dp)} ` +
+          `(${stopDistancePct.toFixed(1)}% of entry $${entryStr}) exceeds ${maxStopPct}% ` +
+          `maximum for ${inst?.assetClass ?? 'FX'}. ` +
+          `ATR stop: ${protectionPips.toFixed(1)} pips × pipValue ${pipVal} = $${(protectionPips * pipVal).toFixed(dp)}.`;
+        await insertCycleLog({
+          cycleId,
+          instrument: displaySymbol,
+          action: 'REJECTED',
+          reason: implausibleReason,
+          orderId: null,
+        });
+        executedLogs.push(`[${logTime}] ${displaySymbol} REJECTED: ${implausibleReason}`);
+        continue;
+      }
 
       // Risk-Derived Position Sizing
       const sizeResult = calculatePositionSize(
@@ -404,20 +454,35 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       );
 
       if (sizeResult.units <= 0n) {
+        // Include full arithmetic so the cause is visible without reverse-engineering
+        const equityNum = Number(accountRiskState.currentEquity) / 100;
+        const riskBudgetNum = Number(sizeResult.maxRiskAllowedInAccountCurrency) / 100;
+        const enrichedReason =
+          `POSITION_SIZE_BELOW_MINIMUM: Computed 0 units for ${displaySymbol}. ` +
+          `Equity: £${equityNum.toFixed(2)}, ` +
+          `RiskBudget: £${riskBudgetNum.toFixed(2)}, ` +
+          `StopPips: ${protectionPips.toFixed(1)}, ` +
+          `PipValue: ${pipVal}, ` +
+          `StopDistance: $${stopDistancePrice.toFixed(dp)}.`;
         await insertCycleLog({
           cycleId,
           instrument: displaySymbol,
           action: 'SKIPPED',
-          reason: `POSITION_SIZE_BELOW_MINIMUM: Computed position size is 0 units for ${displaySymbol}.`,
+          reason: enrichedReason,
           orderId: null,
         });
-        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: POSITION_SIZE_BELOW_MINIMUM.`);
+        executedLogs.push(`[${logTime}] ${displaySymbol} SKIPPED: ${enrichedReason}`);
         continue;
       }
 
-      // IDEMPOTENCY KEY: deterministic from (accountId, displaySymbol, cycleId).
+      // IDEMPOTENCY KEY: deterministic within a 1-minute window.
+      // Using cycleId (which is random per invocation) would re-submit the same
+      // signal on every cron retry within the same minute window. Instead we
+      // key on (accountId, displaySymbol, direction, minute-bucket) so that
+      // any invocation within the same minute produces the same key.
+      const minuteBucket = Math.floor(Date.now() / 60_000);
       const intentId = crypto.createHash('sha256')
-        .update(`${accountId}:${displaySymbol}:${cycleId}`)
+        .update(`${accountId}:${displaySymbol}:${direction}:${minuteBucket}`)
         .digest('hex')
         .slice(0, 36);
 

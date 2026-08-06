@@ -24,9 +24,26 @@ export interface StateAdapter {
     };
     error?: { message: string };
   }>;
+  /** Optional — populate openPositions in AccountRiskState when available.
+   *  Return shape is structurally compatible with BrokerPosition from @meridian/execute,
+   *  but typed here without importing that package to avoid a circular dependency. */
+  getPositions?(accountId: string): Promise<{
+    success: boolean;
+    value?: Array<{
+      id: string;
+      instrument: string;
+      units: bigint;
+      entryPrice: { price: bigint; scale: number; currency: string };
+      unrealizedPnl: { price: bigint; scale: number; currency: string };
+      openedAt: string;
+      source: string;
+      fetchedAt: string;
+    }>;
+    error?: { message: string };
+  }>;
 }
 import { type ScaledInteger, getSupabaseServiceClient, createLogger } from '@meridian/core';
-import { type AccountRiskState } from './types';
+import { type AccountRiskState, type OpenPositionRisk } from './types';
 import { checkNewsBlackoutActive } from './calendar';
 
 const log = createLogger('AccountRiskStateBuilder');
@@ -191,11 +208,38 @@ export async function buildAccountRiskState(
     );
   }
 
-  // 4. Check news blackout (fail closed)
+  // 4. Check news blackout
   const symbol = options?.instrument || 'GBP/USD';
   const parts = symbol.split('/');
   const currencies = parts.length === 2 ? parts : ['USD', 'GBP'];
   const isNewsBlackoutActive = await checkNewsBlackoutActive(currencies);
+
+  // 5. Fetch open positions from broker adapter if supported
+  //    Maps to OpenPositionRisk[] for aggregate/correlated risk rule evaluation.
+  //    Duck-typed via optional method on StateAdapter to avoid circular imports.
+  const openPositions: OpenPositionRisk[] = [];
+  if (typeof adapter.getPositions === 'function') {
+    try {
+      const posRes = await adapter.getPositions!(accountId);
+      if (posRes?.success && posRes.value) {
+        for (const p of posRes.value) {
+          // OANDA: negative units = short (SELL), positive = long (BUY)
+          const direction: 'BUY' | 'SELL' = p.units < 0n ? 'SELL' : 'BUY';
+          // riskAmountInAccountCurrency: absolute unrealizedPnl magnitude as a proxy.
+          const absUnrealised = p.unrealizedPnl.price < 0n
+            ? -p.unrealizedPnl.price
+            : p.unrealizedPnl.price;
+          openPositions.push({
+            instrument: p.instrument,
+            direction,
+            riskAmountInAccountCurrency: absUnrealised as ScaledInteger,
+          });
+        }
+      }
+    } catch (e: any) {
+      log.warn('buildAccountRiskState: getPositions failed — openPositions will be empty', { error: e.message });
+    }
+  }
 
   return {
     accountId,
@@ -208,5 +252,6 @@ export async function buildAccountRiskState(
     unrealizedPnl: accountState.unrealizedPnl.price as ScaledInteger,
     isNewsBlackoutActive,
     quoteToAccountRates: options?.quoteToAccountRates,
+    openPositions: openPositions.length > 0 ? openPositions : undefined,
   };
 }

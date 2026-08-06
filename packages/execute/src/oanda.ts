@@ -408,7 +408,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         balance: { price: parsedBalance.amount, scale: parsedBalance.scale, currency: accountCurrency },
         equity: { price: parsedNav.amount, scale: parsedNav.scale, currency: accountCurrency },
         unrealizedPnl: { price: parsedPnl.amount, scale: parsedPnl.scale, currency: accountCurrency },
-        openPositionsCount: (summary.openPositionCount ?? summary.openTradeCount) || 0,
+        openPositionsCount: summary.openTradeCount ?? summary.openPositionCount ?? 0,
         currency: accountCurrency,
         source: 'oanda.rest.v3',
         fetchedAt: new Date().toISOString()

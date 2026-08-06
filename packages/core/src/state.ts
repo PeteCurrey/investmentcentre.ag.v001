@@ -321,27 +321,59 @@ export interface AccountDayRecord {
 }
 
 /**
- * Upserts one account_day row via the service-role client. Fire-and-forget.
+ * Upserts one account_day row via the service-role client.
+ *
+ * IMPORTANT: opening_balance is immutable once written — it records the balance
+ * at the start of the trading day and is the baseline for daily-loss calculations.
+ * On conflict (row already exists for today), we ONLY advance high_water_mark
+ * monotonically. opening_balance is NEVER overwritten.
+ *
+ * Fresh insert (no row for today): writes opening_balance from d.openingBalance.
  */
 export async function upsertAccountDay(d: AccountDayRecord): Promise<void> {
   try {
     const sb = getSupabaseServiceClient();
-    const { error } = await sb
+
+    // Check if a row already exists for this day
+    const { data: existing } = await sb
       .schema('meridian')
       .from('account_day')
-      .upsert(
-        {
+      .select('opening_balance, high_water_mark')
+      .eq('day_date', d.dayDate)
+      .maybeSingle();
+
+    if (existing) {
+      // Row exists — NEVER overwrite opening_balance.
+      // Only advance high_water_mark if the new value is strictly greater.
+      const storedHwm = BigInt(existing.high_water_mark);
+      if (d.highWaterMark > storedHwm) {
+        const { error } = await sb
+          .schema('meridian')
+          .from('account_day')
+          .update({
+            high_water_mark: String(d.highWaterMark),
+            high_water_mark_updated_at: d.highWaterMarkUpdatedAt,
+          })
+          .eq('day_date', d.dayDate);
+        if (error) {
+          log.error('upsertAccountDay: high_water_mark update failed', { error: error.message });
+        }
+      }
+    } else {
+      // No row for today — insert with the opening balance captured now
+      const { error } = await sb
+        .schema('meridian')
+        .from('account_day')
+        .insert({
           day_date: d.dayDate,
           opening_balance: String(d.openingBalance),
           opening_balance_captured_at: d.openingBalanceCapturedAt,
           high_water_mark: String(d.highWaterMark),
           high_water_mark_updated_at: d.highWaterMarkUpdatedAt,
-        },
-        { onConflict: 'day_date' }
-      );
-
-    if (error) {
-      log.error('upsertAccountDay: upsert failed', { error: error.message });
+        });
+      if (error) {
+        log.error('upsertAccountDay: insert failed', { error: error.message });
+      }
     }
   } catch (err: unknown) {
     log.error('upsertAccountDay: unexpected error', { err });

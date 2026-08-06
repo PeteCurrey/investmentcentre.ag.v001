@@ -223,35 +223,40 @@ describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
 
 describe('checkNewsBlackoutActive', () => {
   const origTeKey = process.env.TRADING_ECONOMICS_KEY;
+  const origFredKey = process.env.FRED_API_KEY;
   const origCalendarUrl = process.env.ECONOMIC_CALENDAR_URL;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
     delete process.env.TRADING_ECONOMICS_KEY;
+    delete process.env.FRED_API_KEY;
     delete process.env.ECONOMIC_CALENDAR_URL;
     global.fetch = mockFetch;
   });
 
   afterEach(() => {
     process.env.TRADING_ECONOMICS_KEY = origTeKey;
+    process.env.FRED_API_KEY = origFredKey;
     process.env.ECONOMIC_CALENDAR_URL = origCalendarUrl;
     vi.restoreAllMocks();
   });
 
-  it('fails closed (returns true) if no calendar source is configured', async () => {
+  it('returns false (not fail-closed) if no calendar source is configured', async () => {
+    // New behaviour: unconfigured calendar logs a warning but does not block trading.
+    // Previously this returned true (fail-closed) which permanently blocked all cycles.
     const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(true);
+    expect(result).toBe(false);
   });
 
-  it('fails closed (returns true) if fetch throws an error', async () => {
+  it('returns false (not fail-closed) if fetch throws an error', async () => {
     process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
     mockFetch.mockRejectedValue(new Error('Network failure'));
 
     const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(true);
+    expect(result).toBe(false);
   });
 
-  it('fails closed (returns true) if fetch returns a non-ok response', async () => {
+  it('returns false (not fail-closed) if fetch returns a non-ok response', async () => {
     process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
     mockFetch.mockResolvedValue({
       ok: false,
@@ -260,7 +265,7 @@ describe('checkNewsBlackoutActive', () => {
     });
 
     const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(true);
+    expect(result).toBe(false);
   });
 
   it('returns false if there are no events in the calendar', async () => {
@@ -369,6 +374,26 @@ describe('checkNewsBlackoutActive', () => {
     });
 
     const result = await checkNewsBlackoutActive(['USD', 'GBP'], 2);
+    expect(result).toBe(false);
+  });
+
+  it('FRED: returns false for non-USD pair (EUR/GBP) even if FRED key set — USD events do not affect EUR/GBP', async () => {
+    process.env.FRED_API_KEY = 'test-fred-key';
+    // EUR/GBP has no USD leg — FRED USD events should not block it
+    const result = await checkNewsBlackoutActive(['EUR', 'GBP']);
+    expect(result).toBe(false);
+    // fetch should NOT have been called since no USD exposure
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('FRED: returns false if FRED API returns no release dates for today', async () => {
+    process.env.FRED_API_KEY = 'test-fred-key';
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ release_dates: [] })
+    });
+
+    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
     expect(result).toBe(false);
   });
 });

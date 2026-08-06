@@ -15,6 +15,8 @@ import { RiskGate, FTMO_STANDARD_PROFILE } from '@meridian/risk';
 import { createPrice } from '@meridian/core';
 import { parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
 
+import { getPipValue, getDecimalPlaces } from '../../../../lib/instruments';
+
 const OANDA_BASE = {
   practice: 'https://api-fxpractice.oanda.com/v3',
   live: 'https://api-fxtrade.oanda.com/v3',
@@ -34,22 +36,6 @@ interface OandaOpenTrade {
 }
 
 type ModifyAction = 'trailing_stop' | 'move_sl' | 'move_tp' | 'break_even';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getPipValue(instrument: string): number {
-  if (instrument.includes('JPY')) return 0.01;
-  if (instrument.startsWith('XAU')) return 1.0;
-  if (instrument.startsWith('SPX')) return 1.0;
-  return 0.0001;
-}
-
-function getDecimalPlaces(instrument: string): number {
-  if (instrument.includes('JPY')) return 3;
-  if (instrument.startsWith('XAU')) return 2;
-  if (instrument.startsWith('SPX')) return 1;
-  return 5;
-}
 
 async function fetchOpenTrade(
   baseUrl: string,
