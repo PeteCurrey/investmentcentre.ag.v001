@@ -117,15 +117,34 @@ vi.mock('@meridian/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@meridian/core')>();
   return {
     ...actual,
-    readAutotraderConfig: async () => mockDb.config,
+    readAutotraderConfig: async () => ({ ...mockDb.config, mode: mockDb.mode }),
     writeAutotraderConfig: async (updates: any) => {
+      if (updates.mode) mockDb.mode = updates.mode;
       mockDb.config = { ...mockDb.config, ...updates };
-      return true;
+      return { ...mockDb.config, mode: mockDb.mode };
     },
     getMode: async () => mockDb.mode,
     setMode: async (mode: any) => {
       mockDb.mode = mode;
       return true;
+    },
+    // requestTransition: validates legal transitions and updates mockDb.mode
+    requestTransition: async (from: string, to: string, actor: string, reason: string) => {
+      if (!reason || reason.trim().length === 0) {
+        return { ok: false, error: 'reason is mandatory and must be non-empty' };
+      }
+      const LEGAL: [string, string][] = [
+        ['OBSERVE', 'PAPER'], ['PAPER', 'OBSERVE'],
+        ['PAPER', 'LIVE'], ['LIVE', 'PAPER'], ['LIVE', 'OBSERVE'],
+      ];
+      if (!LEGAL.some(([f, t]) => f === from && t === to)) {
+        return { ok: false, error: `Transition ${from}→${to} is not permitted.` };
+      }
+      if (mockDb.mode !== from) {
+        return { ok: false, error: `Current mode is ${mockDb.mode}, not ${from}.` };
+      }
+      mockDb.mode = to as any;
+      return { ok: true };
     },
     insertGateDecision: async (decision: any) => {
       mockDb.gateDecisions.push(decision);
