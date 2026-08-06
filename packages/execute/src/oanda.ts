@@ -342,37 +342,65 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         return err(new Error(`OANDA GetPositions Schema Error: ${parsed.error.message}`));
       }
       const fetchedAt = new Date().toISOString();
-      const positions: BrokerPosition[] = (parsed.data.positions || []).map((p) => {
-        const rawUnitsStr = p.long?.units || p.short?.units || '0';
-        const rawPriceStr = p.long?.averagePrice || p.short?.averagePrice || '0';
-        const rawPnlStr = p.unrealizedPL || '0';
+      const positions: BrokerPosition[] = [];
 
-        const parsedEntry = parsePriceStringToBigInt(rawPriceStr);
-        const parsedPnl = parsePriceStringToBigInt(rawPnlStr, 2);
-
+      for (const p of parsed.data.positions || []) {
         const pairParts = p.instrument.split('_');
         const quoteCurrency = pairParts.length === 2 ? pairParts[1] : 'USD';
+        const displayInst = p.instrument.replace('_', '/');
 
-        return {
-          id: p.instrument,
-          instrument: p.instrument.replace('_', '/'),
-          units: parsePriceStringToBigInt(rawUnitsStr, 0).amount,
-          entryPrice: {
-            price: parsedEntry.amount,
-            scale: parsedEntry.scale,
-            currency: quoteCurrency
-          },
-          stopLossPrice: undefined,
-          unrealizedPnl: {
-            price: parsedPnl.amount,
-            scale: parsedPnl.scale,
-            currency: 'USD'
-          },
-          openedAt: new Date().toISOString(),
-          source: 'oanda.rest.v3',
-          fetchedAt
-        };
-      });
+        // Check long side
+        const longUnitsNum = p.long?.units ? parseFloat(p.long.units) : 0;
+        if (longUnitsNum !== 0 && p.long?.units) {
+          const entryParsed = parsePriceStringToBigInt(p.long.averagePrice || '0');
+          const pnlParsed = parsePriceStringToBigInt(p.long.unrealizedPL || p.unrealizedPL || '0', 2);
+          positions.push({
+            id: `${p.instrument}_long`,
+            instrument: displayInst,
+            units: parsePriceStringToBigInt(p.long.units, 0).amount,
+            entryPrice: {
+              price: entryParsed.amount,
+              scale: entryParsed.scale,
+              currency: quoteCurrency,
+            },
+            stopLossPrice: undefined,
+            unrealizedPnl: {
+              price: pnlParsed.amount,
+              scale: pnlParsed.scale,
+              currency: 'USD',
+            },
+            openedAt: new Date().toISOString(),
+            source: 'oanda.rest.v3',
+            fetchedAt,
+          });
+        }
+
+        // Check short side
+        const shortUnitsNum = p.short?.units ? parseFloat(p.short.units) : 0;
+        if (shortUnitsNum !== 0 && p.short?.units) {
+          const entryParsed = parsePriceStringToBigInt(p.short.averagePrice || '0');
+          const pnlParsed = parsePriceStringToBigInt(p.short.unrealizedPL || p.unrealizedPL || '0', 2);
+          positions.push({
+            id: `${p.instrument}_short`,
+            instrument: displayInst,
+            units: parsePriceStringToBigInt(p.short.units, 0).amount,
+            entryPrice: {
+              price: entryParsed.amount,
+              scale: entryParsed.scale,
+              currency: quoteCurrency,
+            },
+            stopLossPrice: undefined,
+            unrealizedPnl: {
+              price: pnlParsed.amount,
+              scale: pnlParsed.scale,
+              currency: 'USD',
+            },
+            openedAt: new Date().toISOString(),
+            source: 'oanda.rest.v3',
+            fetchedAt,
+          });
+        }
+      }
       return ok(positions);
     } catch (e: any) {
       return err(new Error(`OANDA GetPositions Exception: ${e.message}`));
@@ -448,36 +476,34 @@ export class OandaBrokerAdapter implements BrokerAdapter {
   }
 
   /**
-   * Fetches live mid prices for the given instruments from the OANDA pricing API.
-   * Accepts OANDA instrument IDs directly (e.g. ["GBP_USD", "SPX500_USD"]).
-   * Returns a map of OANDA instrument ID -> mid price string (e.g. "1.3142").
-   * Returns err() if the API key is missing, the request fails, or any instrument is absent.
+   * Fetches live mid prices, bids, asks, and spread in pips for the given instruments.
    */
-  public async getLivePrices(instruments: string[]): Promise<Result<Record<string, string>>> {
+  public async getLivePricing(
+    instruments: string[]
+  ): Promise<Result<Record<string, { price: string; bid: number; ask: number; spreadPips: number }>>> {
     if (!this.config.apiKey || !this.config.accountId) {
-      return err(new Error('OANDA getLivePrices: API key or account ID is unconfigured.'));
+      return err(new Error('OANDA getLivePricing: API key or account ID is unconfigured.'));
     }
     if (instruments.length === 0) {
       return ok({});
     }
     try {
-      // Clean and normalize instrument list — handles both OANDA IDs ("GBP_USD") and display symbols ("GBP/USD")
       const oandaIds = instruments.map((i) => i.replace('/', '_'));
       const instrumentList = oandaIds.join(',');
       const response = await fetch(
         `${this.baseUrl}/accounts/${this.config.accountId}/pricing?instruments=${encodeURIComponent(instrumentList)}`,
         {
-          headers: { Authorization: `Bearer ${this.config.apiKey}` }
+          headers: { Authorization: `Bearer ${this.config.apiKey}` },
         }
       );
       if (!response.ok) {
-        return err(new Error(await formatOandaError(response, 'OANDA getLivePrices')));
+        return err(new Error(await formatOandaError(response, 'OANDA getLivePricing')));
       }
       const rawData = (await response.json()) as any;
       if (!rawData || !Array.isArray(rawData.prices)) {
-        return err(new Error(`OANDA getLivePrices: Response missing 'prices' array`));
+        return err(new Error(`OANDA getLivePricing: Response missing 'prices' array`));
       }
-      const result: Record<string, string> = {};
+      const result: Record<string, { price: string; bid: number; ask: number; spreadPips: number }> = {};
       for (const p of rawData.prices) {
         if (!p.instrument) continue;
         const bid = parseFloat(p.bids?.[0]?.price || p.closeoutBid || '0');
@@ -485,18 +511,49 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         if (bid > 0 && ask > 0) {
           const mid = (bid + ask) / 2;
           const midStr = mid.toPrecision(7).replace(/\.?0+$/, '');
-          result[p.instrument] = mid.toFixed(Math.max(2, (midStr.split('.')[1] || '').length));
+          const priceStr = mid.toFixed(Math.max(2, (midStr.split('.')[1] || '').length));
+
+          // Calculate spread in pips
+          const displaySymbol = p.instrument.replace('_', '/');
+          let pipVal = 0.0001;
+          if (displaySymbol.includes('JPY')) pipVal = 0.01;
+          else if (displaySymbol.startsWith('XAU') || displaySymbol.startsWith('SPX')) pipVal = 1.0;
+          const spreadDiff = Math.max(0, ask - bid);
+          const spreadPips = parseFloat((spreadDiff / pipVal).toFixed(2));
+
+          result[p.instrument] = {
+            price: priceStr,
+            bid,
+            ask,
+            spreadPips,
+          };
         }
       }
-      // Verify all requested instruments were returned
       const missing = oandaIds.filter((id) => !(id in result));
       if (missing.length > 0) {
-        return err(new Error(`OANDA getLivePrices: Missing prices for: ${missing.join(', ')}`));
+        return err(new Error(`OANDA getLivePricing: Missing prices for: ${missing.join(', ')}`));
       }
       return ok(result);
     } catch (e: any) {
-      return err(new Error(`OANDA getLivePrices Exception: ${e.message}`));
+      return err(new Error(`OANDA getLivePricing Exception: ${e.message}`));
     }
+  }
+
+  /**
+   * Fetches live mid prices for the given instruments from the OANDA pricing API.
+   * Accepts OANDA instrument IDs directly (e.g. ["GBP_USD", "SPX500_USD"]).
+   * Returns a map of OANDA instrument ID -> mid price string (e.g. "1.3142").
+   */
+  public async getLivePrices(instruments: string[]): Promise<Result<Record<string, string>>> {
+    const res = await this.getLivePricing(instruments);
+    if (!res.success) {
+      return err(res.error);
+    }
+    const prices: Record<string, string> = {};
+    for (const [k, v] of Object.entries(res.value)) {
+      prices[k] = v.price;
+    }
+    return ok(prices);
   }
 
   /**

@@ -58,6 +58,15 @@ describe('runCycle() Integration Tests', () => {
     expect(db.gateDecisions.length).toBeGreaterThan(0);
     // Cycle logs should show OBSERVE_EVAL
     expect(db.cycleLogs.some(l => l.action === 'OBSERVE_EVAL' || l.reason.includes('OBSERVE'))).toBe(true);
+
+    // Verify persisted gate_decisions account_state JSON snapshot contains required fields
+    const persistedState = db.gateDecisions[0].accountState as Record<string, any>;
+    expect(persistedState).toBeDefined();
+    expect(typeof persistedState.accountCurrency).toBe('string');
+    expect(persistedState.accountCurrency.length).toBe(3);
+    expect(Array.isArray(persistedState.openPositions)).toBe(true);
+    expect(typeof persistedState.currentSpreadPips).toBe('number');
+    expect(typeof persistedState.newsStatus).toBe('string');
   });
 
   it('run-cycle in PAPER mode submits no live broker orders', async () => {

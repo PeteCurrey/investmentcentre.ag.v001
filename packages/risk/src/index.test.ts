@@ -127,6 +127,47 @@ describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
     expect(failDecision.reasonCode).toBe('TOTAL_DRAWDOWN_EXCEEDED');
   });
 
+  it('enforces spread boundary check with SPREAD_EXCEEDS_MAXIMUM', () => {
+    // GBP/USD max spread in profile is 3.0 pips. Pass currentSpreadPips = 5.0 -> REJECTED
+    const spreadState = { ...baseState, currentSpreadPips: 5.0 };
+    const decision = RiskGate.evaluate(baseIntent, FTMO_STANDARD_PROFILE, spreadState);
+    expect(decision.approved).toBe(false);
+    expect(decision.reasonCode).toBe('SPREAD_EXCEEDS_MAXIMUM');
+  });
+
+  it('enforces correlated exposure check with MAX_CORRELATED_EXPOSURE_EXCEEDED', () => {
+    // Profile allows maxCorrelatedExposure = 2.
+    // Existing positions have 2 BUY positions in USD_MAJORS (EUR/USD and AUD/USD).
+    // Attempting a 3rd BUY position on GBP/USD -> REJECTED
+    const correlatedState: AccountRiskState = {
+      ...baseState,
+      openPositions: [
+        { instrument: 'EUR/USD', direction: 'BUY', riskAmountInAccountCurrency: 50000n as any },
+        { instrument: 'AUD/USD', direction: 'BUY', riskAmountInAccountCurrency: 50000n as any },
+      ],
+    };
+    const decision = RiskGate.evaluate(baseIntent, FTMO_STANDARD_PROFILE, correlatedState);
+    expect(decision.approved).toBe(false);
+    expect(decision.reasonCode).toBe('MAX_CORRELATED_EXPOSURE_EXCEEDED');
+  });
+
+  it('enforces aggregate risk check with MAX_AGGREGATE_RISK_EXCEEDED', () => {
+    // Equity is $100,000. maxAggregateRiskPct is 5.0% ($5,000.00 = 500000n cents).
+    // Existing open positions carry $4,800.00 (480000n cents) risk.
+    // New intent carries $500.00 (50000n cents) risk -> total $5,300.00 > $5,000.00 -> REJECTED
+    const aggregateState: AccountRiskState = {
+      ...baseState,
+      openPositions: [
+        { instrument: 'EUR/USD', direction: 'BUY', riskAmountInAccountCurrency: 480000n as any },
+      ],
+    };
+    // intent with 50,000 units at 145 pips = $725.00 risk. Total aggregate = $4,800 + $725 = $5,525 > $5,000
+    const highRiskIntent = { ...baseIntent, units: toScaledInteger(50000n) };
+    const decision = RiskGate.evaluate(highRiskIntent, FTMO_STANDARD_PROFILE, aggregateState);
+    expect(decision.approved).toBe(false);
+    expect(decision.reasonCode).toBe('MAX_AGGREGATE_RISK_EXCEEDED');
+  });
+
   it('enforces max risk per trade boundary for BUY orders', () => {
     // Max risk per trade is 1.0% ($1,000.00 = 100000n in scale 2)
     // 10,000 units with 145 pips (scale 4) = $145.00 risk -> APPROVED

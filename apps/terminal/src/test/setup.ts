@@ -384,11 +384,17 @@ export function setupFetchMock() {
         .filter(s => oandaMock.prices[s] !== undefined)
         .map(s => {
           const spot = oandaMock.prices[s];
+          const spotNum = parseFloat(spot);
+          let pipVal = 0.0001;
+          if (s.includes('JPY')) pipVal = 0.01;
+          else if (s.startsWith('XAU') || s.startsWith('SPX')) pipVal = 1.0;
+          const bidPrice = (spotNum - pipVal * 0.5).toFixed(5);
+          const askPrice = (spotNum + pipVal * 0.5).toFixed(5);
           return {
             instrument: s,
             time: new Date().toISOString(),
-            bids: [{ price: spot, liquidity: 1000000 }],
-            asks: [{ price: spot, liquidity: 1000000 }],
+            bids: [{ price: bidPrice, liquidity: 1000000 }],
+            asks: [{ price: askPrice, liquidity: 1000000 }],
             tradeable: true,
           };
         });

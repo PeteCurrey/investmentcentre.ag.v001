@@ -51,6 +51,7 @@ const log = createLogger('AccountRiskStateBuilder');
 export interface BuildAccountRiskStateOptions {
   instrument?: string;
   quoteToAccountRates?: Record<string, number>;
+  currentSpreadPips?: number;
 }
 
 /**
@@ -104,6 +105,10 @@ export async function buildAccountRiskState(
     throw new Error(`BROKER_ACCOUNT_SYNC_FAILED: ${stateRes.error?.message ?? 'Unknown error'}`);
   }
   const accountState = stateRes.value;
+  if (!accountState.currency || typeof accountState.currency !== 'string') {
+    throw new Error('ACCOUNT_CURRENCY_MISSING: OANDA broker account state is missing required currency field.');
+  }
+  const accountCurrency = accountState.currency.toUpperCase();
   const currentBalance = accountState.balance.price as ScaledInteger;
   const currentEquity = accountState.equity.price as ScaledInteger;
 
@@ -244,7 +249,7 @@ export async function buildAccountRiskState(
 
   return {
     accountId,
-    accountCurrency: accountState.currency || 'USD',
+    accountCurrency,
     startingDailyBalance,
     currentEquity,
     highWaterMark: storedHwm,
@@ -255,5 +260,6 @@ export async function buildAccountRiskState(
     newsStatus,
     quoteToAccountRates: options?.quoteToAccountRates,
     openPositions: openPositions.length > 0 ? openPositions : undefined,
+    currentSpreadPips: options?.currentSpreadPips,
   };
 }

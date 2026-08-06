@@ -182,17 +182,20 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
 
     const accountState = stateResult.value;
 
-    // ── 7. account_day is managed exclusively by buildAccountRiskState ─────────
-    // DO NOT call upsertAccountDay() here — it would overwrite the opening_balance
-    // baseline on every cycle, destroying daily-loss calculations.
-    // buildAccountRiskState() in @meridian/risk inserts the row on first call
-    // each day and only advances the high_water_mark monotonically thereafter.
+    // Verify account currency is present
+    const accountCurrency = accountState.currency?.toUpperCase();
+    if (!accountCurrency) {
+      throw new Error('ACCOUNT_CURRENCY_MISSING: OANDA broker account state is missing required currency field.');
+    }
 
     // ── 7.5. Fetch OANDA account tradeable instruments ────────────────────────
     let accountInstruments: Set<string> | null = null;
-    const accountInstResult = await adapter.getAccountInstruments();
-    if (accountInstResult.success) {
-      accountInstruments = accountInstResult.value;
+    const adapterWithAccountInst = adapter as any;
+    if (typeof adapterWithAccountInst.getAccountInstruments === 'function') {
+      const accountInstResult = await adapterWithAccountInst.getAccountInstruments(accountId);
+      if (accountInstResult.success && accountInstResult.value) {
+        accountInstruments = accountInstResult.value;
+      }
     }
 
     // ── 8. Evaluate each active instrument ────────────────────────────────────
@@ -246,32 +249,45 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       }
     }
 
-    // Fetch prices for valid tradeable candidates (batch with resilient fallback)
+    // Fetch live pricing with spread details (batch with resilient fallback)
     let oandaPrices: Record<string, string> = {};
+    let oandaPricingMap: Record<string, { price: string; bid: number; ask: number; spreadPips: number }> = {};
+
     if (validCandidateOandaIds.length > 0) {
-      const batchResult = await adapter.getLivePrices(validCandidateOandaIds);
-      if (batchResult.success) {
-        oandaPrices = batchResult.value;
-      } else {
-        // Fallback: fetch prices per-instrument individually so 1 bad quote never kills the cycle
-        for (const oid of validCandidateOandaIds) {
-          const singleRes = await adapter.getLivePrices([oid]);
-          if (singleRes.success) {
-            Object.assign(oandaPrices, singleRes.value);
+      const adapterWithPricing = adapter as any;
+      if (typeof adapterWithPricing.getLivePricing === 'function') {
+        const pricingRes = await adapterWithPricing.getLivePricing(validCandidateOandaIds);
+        if (pricingRes.success && pricingRes.value) {
+          oandaPricingMap = pricingRes.value;
+          for (const [k, v] of Object.entries(pricingRes.value)) {
+            oandaPrices[k] = (v as any).price;
+          }
+        }
+      }
+
+      if (Object.keys(oandaPrices).length === 0) {
+        const batchResult = await adapter.getLivePrices(validCandidateOandaIds);
+        if (batchResult.success) {
+          oandaPrices = batchResult.value;
+        } else {
+          // Fallback: fetch prices per-instrument individually so 1 bad quote never kills the cycle
+          for (const oid of validCandidateOandaIds) {
+            const singleRes = await adapter.getLivePrices([oid]);
+            if (singleRes.success) {
+              Object.assign(oandaPrices, singleRes.value);
+            }
           }
         }
       }
     }
 
-    // ── Build quoteToAccountRates from live prices ────────────────────────────
-    // Account currency is GBP. For each instrument, determine how to convert
-    // the quote currency into GBP so position sizing uses correct P&L units.
-    //   • Quote = GBP (e.g. EUR/GBP, UK100/GBP) → rate = 1.0
-    //   • Quote = USD → rate = 1 / GBP_USD_price (or USD/GBP if we have it)
-    //   • Otherwise    → rate = 1.0 (conservative; logs a warning)
-    const ACCOUNT_CURRENCY = 'GBP';
+    // ── Build quoteToAccountRates dynamically based on accountCurrency ────────
     const quoteToAccountRates: Record<string, number> = {};
+    quoteToAccountRates[accountCurrency] = 1.0;
+
     const gbpUsdPrice = parseFloat(oandaPrices['GBP_USD'] ?? oandaPrices['GBPUSD'] ?? '0');
+    const eurUsdPrice = parseFloat(oandaPrices['EUR_USD'] ?? oandaPrices['EURUSD'] ?? '0');
+
     for (const oid of validCandidateOandaIds) {
       const priceStr = oandaPrices[oid];
       if (!priceStr) continue;
@@ -416,9 +432,13 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         ? createPrice(tpParsed.amount, tpParsed.scale, quoteCurrency)
         : undefined;
 
+      const pricingDetails = oandaId ? oandaPricingMap[oandaId] : undefined;
+      const currentSpreadPips = pricingDetails?.spreadPips;
+
       const accountRiskState = await buildAccountRiskState(adapter, accountId, {
         instrument: displaySymbol,
         quoteToAccountRates,
+        currentSpreadPips,
       });
 
       // ── Stop distance sanity check ─────────────────────────────────────────
@@ -522,6 +542,7 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         },
         accountState: {
           accountId,
+          accountCurrency: accountRiskState.accountCurrency,
           startingDailyBalance: String(accountRiskState.startingDailyBalance),
           currentEquity: String(accountRiskState.currentEquity),
           highWaterMark: String(accountRiskState.highWaterMark),
@@ -529,6 +550,9 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
           realizedPnlToday: String(accountRiskState.realizedPnlToday),
           unrealizedPnl: String(accountRiskState.unrealizedPnl),
           isNewsBlackoutActive: accountRiskState.isNewsBlackoutActive,
+          newsStatus: accountRiskState.newsStatus,
+          openPositions: accountRiskState.openPositions ?? [],
+          currentSpreadPips: accountRiskState.currentSpreadPips ?? null,
           approvedProtectionPips: protectionPips,
           transmittedAsTrailingStop: rp.useTrailingStop,
         },
