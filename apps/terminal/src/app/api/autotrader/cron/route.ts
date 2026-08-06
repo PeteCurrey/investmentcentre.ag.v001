@@ -3,16 +3,22 @@
  *
  * Vercel Cron endpoint — fires every minute as defined in vercel.json.
  * Vercel injects an "Authorization: Bearer <CRON_SECRET>" header automatically.
- * This handler verifies that secret, then delegates to the core run-cycle logic.
+ * This handler verifies that secret, then calls runCycle() directly.
+ *
+ * IMPORTANT: This endpoint calls runCycle() directly (not via HTTP fetch).
+ * A serverless function must not fetch itself: VERCEL_URL resolves to the
+ * deployment URL and Vercel Deployment Protection blocks such self-calls.
  *
  * This endpoint is NOT protected by session cookie. It is protected by the
- * CRON_SECRET env var. Never expose CRON_SECRET publicly.
+ * CRON_SECRET env var with constant-time comparison. Never expose CRON_SECRET.
  *
- * The UI (trade/page.tsx) must NOT call this endpoint. It is for Vercel cron only.
+ * This endpoint is allowlisted in middleware.ts (no session required).
+ * The UI must NOT call this endpoint — it is for Vercel cron only.
  */
 
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { runCycle } from '../run-cycle/cycle';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -44,27 +50,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  // ── 2. Delegate to run-cycle via internal server-side call ────────────────
-  // We call the run-cycle route using the CRON_SECRET as a special internal marker
-  // rather than re-implementing cycle logic here, keeping a single execution path.
+  // ── 2. Run cycle directly (no internal HTTP self-fetch) ───────────────────
   try {
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : `http://localhost:${process.env.PORT || 3000}`;
-
-    const res = await fetch(`${baseUrl}/api/autotrader/run-cycle`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Cron-internal auth header — run-cycle checks this to bypass session requirement
-        'x-cron-secret': cronSecret,
-      },
+    const result = await runCycle();
+    return NextResponse.json({ cronInvoked: true, cycleResult: result }, {
+      status: result.success ? 200 : (result.reason === 'CYCLE_IN_FLIGHT' ? 409 : 503),
     });
-
-    const data = await res.json();
-    return NextResponse.json({ cronInvoked: true, cycleResult: data }, { status: res.status });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: `Cron cycle invocation failed: ${msg}` }, { status: 502 });
+    return NextResponse.json(
+      { error: `Cron cycle failed: ${msg}` },
+      { status: 500 }
+    );
   }
 }

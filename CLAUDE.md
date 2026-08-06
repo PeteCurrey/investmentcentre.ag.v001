@@ -65,9 +65,33 @@ Every completion claim includes: the command run (production curl or a real quer
 
 "I have implemented X" is a hypothesis. Production output is evidence. If you can't produce the evidence, say so plainly instead of describing what the code should do.
 
+## DATABASE MIGRATIONS
+
+Migration files live in `infra/supabase/migrations/`, named `YYYYMMDDHHMMSS_description.sql`.
+
+**Applying migrations to production:**
+
+```bash
+node scripts/apply-migrations.js
+```
+
+This reads `SUPABASE_URL` from `.env.local` and applies every migration file in chronological order. Each migration runs in a transaction. If a migration fails with "already exists", it is skipped (idempotent via `IF NOT EXISTS` guards). Any other failure exits non-zero.
+
+**Verification requirement** (part of every phase's completion gate):
+```sql
+SELECT table_name FROM information_schema.tables WHERE table_schema='meridian' ORDER BY 1;
+```
+Report the full list and confirm it matches `REQUIRED_TABLES` in `packages/core/src/assert-schema.ts`.
+
+**Rules:**
+- Every migration must be applied immediately after commit, not deferred.
+- Never create tables via the Supabase Dashboard — it enables RLS by default with no policies, which blocks all writes. Use migration files only.
+- `assert-schema.ts` is called at the start of every cycle. A missing table fails loudly rather than masking as `CYCLE_IN_FLIGHT`.
+- Add new tables to `REQUIRED_TABLES` in `assert-schema.ts` when adding migrations.
+
 ---
 
-## TECH STACK — FIXED
+
 
 - TypeScript `strict: true`. No `any` without an inline justification.
 - pnpm + Turborepo monorepo

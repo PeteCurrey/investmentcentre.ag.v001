@@ -189,6 +189,10 @@ vi.mock('@meridian/core', async (importOriginal) => {
     },
     getSupabaseClient: () => createMockSupabaseClient(),
     getSupabaseServiceClient: () => createMockSupabaseClient(),
+    resetSupabaseClient: () => {},
+    // Schema is always valid in tests — no real DB to check
+    assertSchemaComplete: async () => { /* no-op */ },
+    checkSchemaComplete: async () => ({ ok: true, missing: [], present: [] }),
   };
 });
 

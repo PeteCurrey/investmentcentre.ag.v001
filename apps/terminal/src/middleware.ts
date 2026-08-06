@@ -10,11 +10,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/meridian', request.url));
   }
 
-  // Allow public marketing page (/meridian), login page, health API, and static assets
+  // Allow public marketing page (/meridian), login page, health API, and static assets.
+  // /api/autotrader/cron is authenticated by CRON_SECRET inside its own handler —
+  // Vercel cron sends Authorization: Bearer <CRON_SECRET> with no session cookie.
   if (
     pathname === '/meridian' ||
     pathname === '/login' ||
     pathname === '/api/health' ||
+    pathname === '/api/autotrader/cron' ||
     pathname.startsWith('/_next') ||
     pathname === '/favicon.ico'
   ) {

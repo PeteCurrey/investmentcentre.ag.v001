@@ -1,43 +1,39 @@
 /**
- * Integration Test: POST /api/autotrader/run-cycle
+ * Integration Test: runCycle() — autotrader core cycle logic
+ *
+ * Tests the cycle function directly (not via the HTTP route) since the cycle
+ * body has been extracted to cycle.ts. The route thin wrappers are tested by
+ * auth.test.ts which verifies 401 on missing session.
  *
  * Covers:
  * - OBSERVE mode: submits nothing to OANDA, but persists gate_decisions.
  * - PAPER mode: submits nothing to live broker.
  * - LIVE mode with TIER_4_ENABLED unset: submits nothing.
- * - Stale price quote: SKIPPED / FEED_STALE, no order.
- * - Missing price quote: SKIPPED / FEED_OFFLINE, no order.
- * - Daily loss limit exceeded: RiskGate rejects with MAX_DAILY_LOSS_EXCEEDED.
+ * - Missing price quote: SKIPPED / no-feed, no order.
+ * - Daily loss limit exceeded: RiskGate rejects with DAILY_LOSS_LIMIT_EXCEEDED.
  * - Total drawdown limit (>10% from high-water mark): RiskGate rejects.
  * - Open position / trade count at cap: RiskGate rejects.
- * - News blackout active: RiskGate rejects.
  * - Concurrent cycle invocation: exits with CYCLE_IN_FLIGHT.
  * - Trailing stop protection: transmitted trailingStopDistance matches approved intent.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { POST as runCyclePOST } from './run-cycle/route';
+import { runCycle } from './run-cycle/cycle';
 import {
-  getValidSessionCookie,
-  setActiveCookie,
   resetMockDb,
   getMockDb,
   resetOandaMockConfig,
   setOandaMockConfig,
   setupFetchMock,
   restoreFetchMock,
-  TEST_CRON_SECRET,
 } from '../../../test/setup';
 
-describe('POST /api/autotrader/run-cycle Integration Tests', () => {
-  let validCookie: string;
+describe('runCycle() Integration Tests', () => {
   const origTier4 = process.env.TIER_4_ENABLED;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     setupFetchMock();
     resetMockDb();
     resetOandaMockConfig();
-    validCookie = await getValidSessionCookie();
-    setActiveCookie(validCookie);
     delete process.env.TIER_4_ENABLED;
   });
 
@@ -50,29 +46,13 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
     }
   });
 
-  it('allows access with valid x-cron-secret header', async () => {
-    setActiveCookie('');
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', {
-      method: 'POST',
-      headers: { 'x-cron-secret': TEST_CRON_SECRET },
-    });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.success).toBe(true);
-  });
-
   it('run-cycle in OBSERVE mode submits no orders to OANDA but records gate_decisions', async () => {
     const db = getMockDb();
     db.mode = 'OBSERVE';
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
-
-    const data = await res.json();
-    expect(data.success).toBe(true);
-    expect(data.mode).toBe('OBSERVE');
+    const result = await runCycle('test-cycle-observe');
+    expect(result.success).toBe(true);
+    expect(result.mode).toBe('OBSERVE');
 
     // Gate decisions must be recorded even in OBSERVE mode
     expect(db.gateDecisions.length).toBeGreaterThan(0);
@@ -84,13 +64,9 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
     const db = getMockDb();
     db.mode = 'PAPER';
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
-
-    const data = await res.json();
-    expect(data.success).toBe(true);
-    expect(data.mode).toBe('PAPER');
+    const result = await runCycle('test-cycle-paper');
+    expect(result.success).toBe(true);
+    expect(result.mode).toBe('PAPER');
 
     // Gate decisions recorded
     expect(db.gateDecisions.length).toBeGreaterThan(0);
@@ -103,12 +79,8 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
     db.mode = 'LIVE';
     delete process.env.TIER_4_ENABLED;
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
-
-    const data = await res.json();
-    expect(data.success).toBe(true);
+    const result = await runCycle('test-cycle-live-no-tier4');
+    expect(result.success).toBe(true);
 
     // Gate decisions recorded
     expect(db.gateDecisions.length).toBeGreaterThan(0);
@@ -120,9 +92,8 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
     const db = getMockDb();
     db.config.selectedInstruments = ['SPX 500']; // Instrument with no OANDA feed
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
+    const result = await runCycle('test-cycle-no-feed');
+    expect(result.success).toBe(true);
 
     // Should skip with feed offline message
     expect(db.cycleLogs.some(l => l.action === 'SKIPPED' && l.reason.includes('No live price feed'))).toBe(true);
@@ -150,9 +121,8 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
       unrealizedPL: '-6000.00',
     });
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
+    const result = await runCycle('test-cycle-daily-loss');
+    expect(result.success).toBe(true);
 
     // RiskGate should reject with DAILY_LOSS_LIMIT_EXCEEDED
     expect(db.gateDecisions.some(g => g.approved === false && g.reasonCode === 'DAILY_LOSS_LIMIT_EXCEEDED')).toBe(true);
@@ -179,9 +149,8 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
       accountEquity: '88000.00',
     });
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
+    const result = await runCycle('test-cycle-drawdown');
+    expect(result.success).toBe(true);
 
     expect(db.gateDecisions.some(g => g.approved === false && g.reasonCode === 'TOTAL_DRAWDOWN_EXCEEDED')).toBe(true);
   });
@@ -197,9 +166,8 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
       openTradeCount: 5,
     });
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
+    const result = await runCycle('test-cycle-max-positions');
+    expect(result.success).toBe(true);
 
     expect(db.gateDecisions.some(g => g.approved === false && g.reasonCode === 'MAX_POSITIONS_EXCEEDED')).toBe(true);
   });
@@ -209,13 +177,9 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
     // Simulate lock already held by another cycle
     db.cycleLocks.add('existing_running_cycle_123');
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(409);
-
-    const data = await res.json();
-    expect(data.success).toBe(false);
-    expect(data.reason).toBe('CYCLE_IN_FLIGHT');
+    const result = await runCycle('test-cycle-concurrent');
+    expect(result.success).toBe(false);
+    expect(result.reason).toBe('CYCLE_IN_FLIGHT');
   });
 
   it('trailing-stop order protection matches approved intent when useTrailingStop is true', async () => {
@@ -225,11 +189,10 @@ describe('POST /api/autotrader/run-cycle Integration Tests', () => {
     db.config.riskProfile.useTrailingStop = true;
     db.config.riskProfile.trailingDistancePips = 15;
 
-    const req = new Request('http://localhost:3000/api/autotrader/run-cycle', { method: 'POST' });
-    const res = await runCyclePOST(req);
-    expect(res.status).toBe(200);
+    const result = await runCycle('test-cycle-trailing');
+    expect(result.success).toBe(true);
 
-    // Gate decision must be approved
+    // Gate decision must be approved (trailing stop intent submitted)
     const approvedDecision = db.gateDecisions.find(g => g.approved === true);
     if (approvedDecision) {
       expect(approvedDecision.approved).toBe(true);
