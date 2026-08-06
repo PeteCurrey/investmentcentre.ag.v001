@@ -466,31 +466,68 @@ function TradePageInner() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleToggleAutotrader = useCallback(async () => {
-    if (!autotrader || autoToggling) return;
+  // ── Mode Transitions ───────────────────────────────────────────────────────
+  const executeTransition = useCallback(async (fromMode: string, toMode: string) => {
+    if (fromMode === toMode || autoToggling) return;
     setAutoToggling(true);
 
-    // Determine the target mode: if currently OBSERVE or no mode, go to PAPER;
-    // if PAPER or LIVE, return to OBSERVE. OBSERVE→LIVE is never allowed.
-    const currentMode = autotrader.mode ?? 'OBSERVE';
-    const toMode = (currentMode === 'OBSERVE') ? 'PAPER' : 'OBSERVE';
-    const fromMode = currentMode as string;
-
     try {
-      const res = await fetch('/api/autotrader', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requestTransition: { from: fromMode, to: toMode, reason: 'User toggled via Trading Desk UI' }
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setAutotrader(data);
+      if (fromMode === 'OBSERVE' && toMode === 'LIVE') {
+        // Step 1: OBSERVE -> PAPER
+        const s1 = await fetch('/api/autotrader', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestTransition: { from: 'OBSERVE', to: 'PAPER', reason: 'User selected LIVE mode in UI (Step 1)' }
+          }),
+        });
+        const d1 = await s1.json();
+        if (!d1.success) {
+          alert(`Transition Step 1 Failed: ${d1.error}`);
+          setAutoToggling(false);
+          return;
+        }
+        // Step 2: PAPER -> LIVE
+        const s2 = await fetch('/api/autotrader', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestTransition: { from: 'PAPER', to: 'LIVE', reason: 'User selected LIVE mode in UI (Step 2)' }
+          }),
+        });
+        const d2 = await s2.json();
+        if (d2.success) {
+          setAutotrader(d2);
+        } else {
+          alert(`LIVE Mode activation failed: ${d2.error}`);
+        }
+      } else {
+        const res = await fetch('/api/autotrader', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestTransition: { from: fromMode, to: toMode, reason: `User selected ${toMode} mode in UI` }
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setAutotrader(data);
+        } else {
+          alert(`Mode transition failed: ${data.error}`);
+        }
       }
-    } catch {}
+    } catch (e: any) {
+      alert(`Network error during mode transition: ${e.message}`);
+    }
     setAutoToggling(false);
-  }, [autotrader, autoToggling]);
+  }, [autoToggling]);
+
+  const handleToggleAutotrader = useCallback(async () => {
+    if (!autotrader || autoToggling) return;
+    const currentMode = autotrader.mode ?? 'OBSERVE';
+    const toMode = (currentMode === 'OBSERVE') ? 'LIVE' : 'OBSERVE';
+    await executeTransition(currentMode, toMode);
+  }, [autotrader, autoToggling, executeTransition]);
 
   const handleToggleInstrument = useCallback(async (symbolToToggle: string) => {
     if (!autotrader) return;
@@ -718,13 +755,40 @@ function TradePageInner() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{
                 width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0,
-                backgroundColor: autotrader?.enabled ? '#22C55E' : '#6B7280',
-                boxShadow: autotrader?.enabled ? '0 0 12px #22C55E, 0 0 24px rgba(34,197,94,0.5)' : 'none',
+                backgroundColor: autotrader?.mode === 'LIVE' ? '#DC2626' : (autotrader?.enabled ? '#22C55E' : '#6B7280'),
+                boxShadow: autotrader?.mode === 'LIVE' ? '0 0 12px #DC2626, 0 0 24px rgba(220,38,38,0.6)' : (autotrader?.enabled ? '0 0 12px #22C55E, 0 0 24px rgba(34,197,94,0.5)' : 'none'),
                 animation: autotrader?.enabled ? 'pulse 2s infinite' : 'none',
               }} />
-              <span style={{ fontSize: '13px', fontWeight: 800, color: autotrader?.enabled ? '#16A34A' : '#6B7280', letterSpacing: '1px' }}>
-                AUTO-TRADING MODE: {autotrader?.enabled ? 'ON (ACTIVE)' : 'OFF (PAUSED)'}
+              <span style={{ fontSize: '13px', fontWeight: 800, color: autotrader?.mode === 'LIVE' ? '#DC2626' : (autotrader?.enabled ? '#16A34A' : '#6B7280'), letterSpacing: '1px' }}>
+                MODE: {autotrader?.mode === 'LIVE' ? '🔴 LIVE (OANDA BROKER ACTIVE)' : autotrader?.mode === 'PAPER' ? '🟢 PAPER (SIMULATED FILLS)' : '⚪ OBSERVE (PAUSED)'}
               </span>
+
+              {/* Mode Selection Pills */}
+              <div style={{ display: 'flex', gap: '4px', marginLeft: '12px' }}>
+                {(['OBSERVE', 'PAPER', 'LIVE'] as const).map(m => {
+                  const isCur = autotrader?.mode === m;
+                  return (
+                    <button
+                      key={m}
+                      disabled={autoToggling || isCur}
+                      onClick={() => executeTransition(autotrader?.mode ?? 'OBSERVE', m)}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: '9px',
+                        fontWeight: 800,
+                        ...mono,
+                        cursor: isCur ? 'default' : 'pointer',
+                        borderRadius: '3px',
+                        border: `1px solid ${isCur ? (m === 'LIVE' ? '#DC2626' : m === 'PAPER' ? '#16A34A' : '#475569') : '#CBD5E1'}`,
+                        backgroundColor: isCur ? (m === 'LIVE' ? '#FEF2F2' : m === 'PAPER' ? '#F0FDF4' : '#F1F5F9') : '#FFFFFF',
+                        color: isCur ? (m === 'LIVE' ? '#991B1B' : m === 'PAPER' ? '#166534' : '#0F172A') : '#64748B',
+                      }}
+                    >
+                      {m === 'LIVE' ? '⚡ LIVE' : m === 'PAPER' ? '📝 PAPER' : '⏸ OBSERVE'}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {autotrader?.enabled && (
