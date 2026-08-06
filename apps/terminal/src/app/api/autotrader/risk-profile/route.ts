@@ -164,6 +164,6 @@ export async function POST(request: Request) {
     field: targetField,
     oldValue,
     newValue: value,
-    config: updatedConfig,
+    config: writeRes.config,
   });
 }
