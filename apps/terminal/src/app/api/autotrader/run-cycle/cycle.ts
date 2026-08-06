@@ -296,16 +296,22 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         .find(i => i?.oandaId === oid);
       const parts = (instForOid?.symbol ?? '').split('/');
       const quoteCcy = parts.length === 2 ? parts[1] : 'USD';
-      if (quoteCcy === ACCOUNT_CURRENCY) {
+      if (quoteCcy === accountCurrency) {
         quoteToAccountRates[quoteCcy] = 1.0;
-      } else if (quoteCcy === 'USD' && gbpUsdPrice > 0) {
-        // USD quote → divide by GBP/USD rate to get USD→GBP conversion
-        quoteToAccountRates['USD'] = 1.0 / gbpUsdPrice;
+      } else if (quoteCcy === 'USD') {
+        if (accountCurrency === 'GBP' && gbpUsdPrice > 0) {
+          quoteToAccountRates['USD'] = 1.0 / gbpUsdPrice;
+        } else if (accountCurrency === 'EUR' && eurUsdPrice > 0) {
+          quoteToAccountRates['USD'] = 1.0 / eurUsdPrice;
+        } else {
+          // account IS USD, or no rate available — 1:1 is conservative
+          quoteToAccountRates['USD'] = 1.0;
+        }
       } else {
-        quoteToAccountRates[quoteCcy] = 1.0; // fallback — conservative
+        quoteToAccountRates[quoteCcy] = 1.0; // conservative fallback
       }
     }
-    quoteToAccountRates[ACCOUNT_CURRENCY] = 1.0; // always safe
+    quoteToAccountRates[accountCurrency] = 1.0; // always safe
 
     for (const rawSymbol of activeInstruments) {
       const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);

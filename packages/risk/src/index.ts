@@ -91,7 +91,9 @@ export class RiskGate {
 
     // Rule 5b: Spread Check
     if (state.currentSpreadPips !== undefined && profile.maxSpreadPips) {
-      const maxSpread = profile.maxSpreadPips[intent.instrument] ?? profile.maxSpreadPips['default'] ?? 10.0;
+      // Normalise instrument to slash format (OANDA uses GBP_USD; profile keys use GBP/USD)
+      const instrumentKey = intent.instrument.replace('_', '/');
+      const maxSpread = profile.maxSpreadPips[instrumentKey] ?? profile.maxSpreadPips[intent.instrument] ?? profile.maxSpreadPips['default'] ?? 10.0;
       if (state.currentSpreadPips > maxSpread) {
         return {
           approved: false,

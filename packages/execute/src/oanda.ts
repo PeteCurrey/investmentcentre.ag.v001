@@ -353,7 +353,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         const longUnitsNum = p.long?.units ? parseFloat(p.long.units) : 0;
         if (longUnitsNum !== 0 && p.long?.units) {
           const entryParsed = parsePriceStringToBigInt(p.long.averagePrice || '0');
-          const pnlParsed = parsePriceStringToBigInt(p.long.unrealizedPL || p.unrealizedPL || '0', 2);
+          const pnlParsed = parsePriceStringToBigInt(p.unrealizedPL || '0', 2);
           positions.push({
             id: `${p.instrument}_long`,
             instrument: displayInst,
@@ -379,7 +379,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
         const shortUnitsNum = p.short?.units ? parseFloat(p.short.units) : 0;
         if (shortUnitsNum !== 0 && p.short?.units) {
           const entryParsed = parsePriceStringToBigInt(p.short.averagePrice || '0');
-          const pnlParsed = parsePriceStringToBigInt(p.short.unrealizedPL || p.unrealizedPL || '0', 2);
+          const pnlParsed = parsePriceStringToBigInt(p.unrealizedPL || '0', 2);
           positions.push({
             id: `${p.instrument}_short`,
             instrument: displayInst,
