@@ -1,6 +1,8 @@
 // ─── MERIDIAN Master Instrument Universe ────────────────────────────────────
 // Single source of truth used by: Markets, Edge, Brief, Trade pages, TradeButton, Autotrader Engine
 
+import { getPipValue as getCorePipValue } from '@meridian/core';
+
 export type AssetClass = 'FX_MAJOR' | 'FX_MINOR' | 'FX_EXOTIC' | 'US_STOCK' | 'UK_STOCK' | 'INDEX' | 'COMMODITY' | 'CRYPTO';
 
 export interface Instrument {
@@ -10,6 +12,7 @@ export interface Instrument {
   assetClass: AssetClass;
   description: string;     // "British Pound / US Dollar"
   digits: number;          // Price decimal places
+  pipValue: number;        // Explicit pip scale (e.g. 0.0001 for FX, 0.01 for JPY, 1.0 for Indices & Gold)
   oandaTradeable: boolean; // Flag indicating if OANDA offers real-time pricing & trading for this asset class
   region?: string;         // For stocks: "US" | "UK"
   sector?: string;         // For stocks: "Technology" etc.
@@ -29,85 +32,85 @@ export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
 
 export const INSTRUMENT_UNIVERSE: Instrument[] = [
   // ── FX Majors ──────────────────────────────────────────────────────────────
-  { symbol: 'GBP/USD', oandaId: 'GBP_USD', tvSymbol: 'OANDA:GBPUSD', assetClass: 'FX_MAJOR', description: 'British Pound / US Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'EUR/USD', oandaId: 'EUR_USD', tvSymbol: 'OANDA:EURUSD', assetClass: 'FX_MAJOR', description: 'Euro / US Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'USD/JPY', oandaId: 'USD_JPY', tvSymbol: 'OANDA:USDJPY', assetClass: 'FX_MAJOR', description: 'US Dollar / Japanese Yen', digits: 3, oandaTradeable: true },
-  { symbol: 'USD/CHF', oandaId: 'USD_CHF', tvSymbol: 'OANDA:USDCHF', assetClass: 'FX_MAJOR', description: 'US Dollar / Swiss Franc', digits: 5, oandaTradeable: true },
-  { symbol: 'AUD/USD', oandaId: 'AUD_USD', tvSymbol: 'OANDA:AUDUSD', assetClass: 'FX_MAJOR', description: 'Australian Dollar / US Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'USD/CAD', oandaId: 'USD_CAD', tvSymbol: 'OANDA:USDCAD', assetClass: 'FX_MAJOR', description: 'US Dollar / Canadian Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'NZD/USD', oandaId: 'NZD_USD', tvSymbol: 'OANDA:NZDUSD', assetClass: 'FX_MAJOR', description: 'New Zealand Dollar / US Dollar', digits: 5, oandaTradeable: true },
+  { symbol: 'GBP/USD', oandaId: 'GBP_USD', tvSymbol: 'OANDA:GBPUSD', assetClass: 'FX_MAJOR', description: 'British Pound / US Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'EUR/USD', oandaId: 'EUR_USD', tvSymbol: 'OANDA:EURUSD', assetClass: 'FX_MAJOR', description: 'Euro / US Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'USD/JPY', oandaId: 'USD_JPY', tvSymbol: 'OANDA:USDJPY', assetClass: 'FX_MAJOR', description: 'US Dollar / Japanese Yen', digits: 3, pipValue: 0.01, oandaTradeable: true },
+  { symbol: 'USD/CHF', oandaId: 'USD_CHF', tvSymbol: 'OANDA:USDCHF', assetClass: 'FX_MAJOR', description: 'US Dollar / Swiss Franc', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'AUD/USD', oandaId: 'AUD_USD', tvSymbol: 'OANDA:AUDUSD', assetClass: 'FX_MAJOR', description: 'Australian Dollar / US Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'USD/CAD', oandaId: 'USD_CAD', tvSymbol: 'OANDA:USDCAD', assetClass: 'FX_MAJOR', description: 'US Dollar / Canadian Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'NZD/USD', oandaId: 'NZD_USD', tvSymbol: 'OANDA:NZDUSD', assetClass: 'FX_MAJOR', description: 'New Zealand Dollar / US Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
 
   // ── FX Minors ──────────────────────────────────────────────────────────────
-  { symbol: 'EUR/GBP', oandaId: 'EUR_GBP', tvSymbol: 'OANDA:EURGBP', assetClass: 'FX_MINOR', description: 'Euro / British Pound', digits: 5, oandaTradeable: true },
-  { symbol: 'EUR/JPY', oandaId: 'EUR_JPY', tvSymbol: 'OANDA:EURJPY', assetClass: 'FX_MINOR', description: 'Euro / Japanese Yen', digits: 3, oandaTradeable: true },
-  { symbol: 'GBP/JPY', oandaId: 'GBP_JPY', tvSymbol: 'OANDA:GBPJPY', assetClass: 'FX_MINOR', description: 'British Pound / Japanese Yen', digits: 3, oandaTradeable: true },
-  { symbol: 'EUR/AUD', oandaId: 'EUR_AUD', tvSymbol: 'OANDA:EURAUD', assetClass: 'FX_MINOR', description: 'Euro / Australian Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'GBP/CAD', oandaId: 'GBP_CAD', tvSymbol: 'OANDA:GBPCAD', assetClass: 'FX_MINOR', description: 'British Pound / Canadian Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'AUD/JPY', oandaId: 'AUD_JPY', tvSymbol: 'OANDA:AUDJPY', assetClass: 'FX_MINOR', description: 'Australian Dollar / Japanese Yen', digits: 3, oandaTradeable: true },
-  { symbol: 'GBP/AUD', oandaId: 'GBP_AUD', tvSymbol: 'OANDA:GBPAUD', assetClass: 'FX_MINOR', description: 'British Pound / Australian Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'EUR/CAD', oandaId: 'EUR_CAD', tvSymbol: 'OANDA:EURCAD', assetClass: 'FX_MINOR', description: 'Euro / Canadian Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'CAD/JPY', oandaId: 'CAD_JPY', tvSymbol: 'OANDA:CADJPY', assetClass: 'FX_MINOR', description: 'Canadian Dollar / Japanese Yen', digits: 3, oandaTradeable: true },
+  { symbol: 'EUR/GBP', oandaId: 'EUR_GBP', tvSymbol: 'OANDA:EURGBP', assetClass: 'FX_MINOR', description: 'Euro / British Pound', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'EUR/JPY', oandaId: 'EUR_JPY', tvSymbol: 'OANDA:EURJPY', assetClass: 'FX_MINOR', description: 'Euro / Japanese Yen', digits: 3, pipValue: 0.01, oandaTradeable: true },
+  { symbol: 'GBP/JPY', oandaId: 'GBP_JPY', tvSymbol: 'OANDA:GBPJPY', assetClass: 'FX_MINOR', description: 'British Pound / Japanese Yen', digits: 3, pipValue: 0.01, oandaTradeable: true },
+  { symbol: 'EUR/AUD', oandaId: 'EUR_AUD', tvSymbol: 'OANDA:EURAUD', assetClass: 'FX_MINOR', description: 'Euro / Australian Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'GBP/CAD', oandaId: 'GBP_CAD', tvSymbol: 'OANDA:GBPCAD', assetClass: 'FX_MINOR', description: 'British Pound / Canadian Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'AUD/JPY', oandaId: 'AUD_JPY', tvSymbol: 'OANDA:AUDJPY', assetClass: 'FX_MINOR', description: 'Australian Dollar / Japanese Yen', digits: 3, pipValue: 0.01, oandaTradeable: true },
+  { symbol: 'GBP/AUD', oandaId: 'GBP_AUD', tvSymbol: 'OANDA:GBPAUD', assetClass: 'FX_MINOR', description: 'British Pound / Australian Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'EUR/CAD', oandaId: 'EUR_CAD', tvSymbol: 'OANDA:EURCAD', assetClass: 'FX_MINOR', description: 'Euro / Canadian Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'CAD/JPY', oandaId: 'CAD_JPY', tvSymbol: 'OANDA:CADJPY', assetClass: 'FX_MINOR', description: 'Canadian Dollar / Japanese Yen', digits: 3, pipValue: 0.01, oandaTradeable: true },
 
   // ── FX Exotics ─────────────────────────────────────────────────────────────
-  { symbol: 'USD/MXN', oandaId: 'USD_MXN', tvSymbol: 'OANDA:USDMXN', assetClass: 'FX_EXOTIC', description: 'US Dollar / Mexican Peso', digits: 4, oandaTradeable: true },
-  { symbol: 'USD/ZAR', oandaId: 'USD_ZAR', tvSymbol: 'OANDA:USDZAR', assetClass: 'FX_EXOTIC', description: 'US Dollar / South African Rand', digits: 4, oandaTradeable: true },
-  { symbol: 'USD/SGD', oandaId: 'USD_SGD', tvSymbol: 'OANDA:USDSGD', assetClass: 'FX_EXOTIC', description: 'US Dollar / Singapore Dollar', digits: 5, oandaTradeable: true },
-  { symbol: 'USD/HKD', oandaId: 'USD_HKD', tvSymbol: 'OANDA:USDHKD', assetClass: 'FX_EXOTIC', description: 'US Dollar / Hong Kong Dollar', digits: 4, oandaTradeable: true },
-  { symbol: 'USD/NOK', oandaId: 'USD_NOK', tvSymbol: 'OANDA:USDNOK', assetClass: 'FX_EXOTIC', description: 'US Dollar / Norwegian Krone', digits: 4, oandaTradeable: true },
-  { symbol: 'USD/SEK', oandaId: 'USD_SEK', tvSymbol: 'OANDA:USDSEK', assetClass: 'FX_EXOTIC', description: 'US Dollar / Swedish Krona', digits: 4, oandaTradeable: true },
+  { symbol: 'USD/MXN', oandaId: 'USD_MXN', tvSymbol: 'OANDA:USDMXN', assetClass: 'FX_EXOTIC', description: 'US Dollar / Mexican Peso', digits: 4, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'USD/ZAR', oandaId: 'USD_ZAR', tvSymbol: 'OANDA:USDZAR', assetClass: 'FX_EXOTIC', description: 'US Dollar / South African Rand', digits: 4, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'USD/SGD', oandaId: 'USD_SGD', tvSymbol: 'OANDA:USDSGD', assetClass: 'FX_EXOTIC', description: 'US Dollar / Singapore Dollar', digits: 5, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'USD/HKD', oandaId: 'USD_HKD', tvSymbol: 'OANDA:USDHKD', assetClass: 'FX_EXOTIC', description: 'US Dollar / Hong Kong Dollar', digits: 4, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'USD/NOK', oandaId: 'USD_NOK', tvSymbol: 'OANDA:USDNOK', assetClass: 'FX_EXOTIC', description: 'US Dollar / Norwegian Krone', digits: 4, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'USD/SEK', oandaId: 'USD_SEK', tvSymbol: 'OANDA:USDSEK', assetClass: 'FX_EXOTIC', description: 'US Dollar / Swedish Krona', digits: 4, pipValue: 0.0001, oandaTradeable: true },
 
   // ── Indices ────────────────────────────────────────────────────────────────
-  { symbol: 'SPX500', oandaId: 'SPX500_USD', tvSymbol: 'FOREXCOM:SPXUSD', assetClass: 'INDEX', description: 'S&P 500 Index', digits: 1, oandaTradeable: true },
-  { symbol: 'NAS100', oandaId: 'NAS100_USD', tvSymbol: 'FOREXCOM:NSXUSD', assetClass: 'INDEX', description: 'NASDAQ 100 Index', digits: 1, oandaTradeable: true },
-  { symbol: 'US30',   oandaId: 'US30_USD',   tvSymbol: 'FOREXCOM:DJI',    assetClass: 'INDEX', description: 'Dow Jones Industrial Average', digits: 1, oandaTradeable: true },
-  { symbol: 'UK100',  oandaId: 'UK100_GBP',  tvSymbol: 'OANDA:UK100GBP',  assetClass: 'INDEX', description: 'FTSE 100 Index', digits: 1, oandaTradeable: true },
-  { symbol: 'GER40',  oandaId: 'DE30_EUR',   tvSymbol: 'OANDA:DE30EUR',   assetClass: 'INDEX', description: 'DAX 40 Index', digits: 1, oandaTradeable: true },
-  { symbol: 'JPN225', oandaId: 'JP225_USD',  tvSymbol: 'OANDA:JP225USD',  assetClass: 'INDEX', description: 'Nikkei 225 Index', digits: 0, oandaTradeable: true },
-  { symbol: 'AUS200', oandaId: 'AU200_AUD',  tvSymbol: 'OANDA:AU200AUD',  assetClass: 'INDEX', description: 'ASX 200 Index', digits: 1, oandaTradeable: true },
-  { symbol: 'HK33',   oandaId: 'HK33_HKD',  tvSymbol: 'OANDA:HK33HKD',  assetClass: 'INDEX', description: 'Hang Seng Index', digits: 1, oandaTradeable: true },
-  { symbol: 'EU50',   oandaId: 'EU50_EUR',   tvSymbol: 'OANDA:EU50EUR',   assetClass: 'INDEX', description: 'Euro Stoxx 50', digits: 1, oandaTradeable: true },
+  { symbol: 'SPX500', oandaId: 'SPX500_USD', tvSymbol: 'FOREXCOM:SPXUSD', assetClass: 'INDEX', description: 'S&P 500 Index', digits: 1, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'NAS100', oandaId: 'NAS100_USD', tvSymbol: 'FOREXCOM:NSXUSD', assetClass: 'INDEX', description: 'NASDAQ 100 Index', digits: 1, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'US30',   oandaId: 'US30_USD',   tvSymbol: 'FOREXCOM:DJI',    assetClass: 'INDEX', description: 'Dow Jones Industrial Average', digits: 1, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'UK100',  oandaId: 'UK100_GBP',  tvSymbol: 'OANDA:UK100GBP',  assetClass: 'INDEX', description: 'FTSE 100 Index', digits: 1, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'GER40',  oandaId: 'DE30_EUR',   tvSymbol: 'OANDA:DE30EUR',   assetClass: 'INDEX', description: 'DAX 40 Index', digits: 1, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'JPN225', oandaId: 'JP225_USD',  tvSymbol: 'OANDA:JP225USD',  assetClass: 'INDEX', description: 'Nikkei 225 Index', digits: 0, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'AUS200', oandaId: 'AU200_AUD',  tvSymbol: 'OANDA:AU200AUD',  assetClass: 'INDEX', description: 'ASX 200 Index', digits: 1, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'HK33',   oandaId: 'HK33_HKD',  tvSymbol: 'OANDA:HK33HKD',  assetClass: 'INDEX', description: 'Hang Seng Index', digits: 1, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'EU50',   oandaId: 'EU50_EUR',   tvSymbol: 'OANDA:EU50EUR',   assetClass: 'INDEX', description: 'Euro Stoxx 50', digits: 1, pipValue: 1.0, oandaTradeable: true },
 
   // ── Commodities ────────────────────────────────────────────────────────────
-  { symbol: 'XAU/USD', oandaId: 'XAU_USD', tvSymbol: 'OANDA:XAUUSD',  assetClass: 'COMMODITY', description: 'Gold Spot', digits: 2, oandaTradeable: true },
-  { symbol: 'XAG/USD', oandaId: 'XAG_USD', tvSymbol: 'OANDA:XAGUSD',  assetClass: 'COMMODITY', description: 'Silver Spot', digits: 3, oandaTradeable: true },
-  { symbol: 'WTI Oil', oandaId: 'WTICO_USD', tvSymbol: 'TVC:USOIL',   assetClass: 'COMMODITY', description: 'WTI Crude Oil', digits: 2, oandaTradeable: true },
-  { symbol: 'Brent',   oandaId: 'BCO_USD',   tvSymbol: 'TVC:UKOIL',   assetClass: 'COMMODITY', description: 'Brent Crude Oil', digits: 2, oandaTradeable: true },
-  { symbol: 'Nat Gas', oandaId: 'NATGAS_USD', tvSymbol: 'TVC:NATURALGAS', assetClass: 'COMMODITY', description: 'Natural Gas', digits: 3, oandaTradeable: true },
-  { symbol: 'Copper',  oandaId: 'XCU_USD',   tvSymbol: 'OANDA:XCUUSD', assetClass: 'COMMODITY', description: 'Copper Spot', digits: 4, oandaTradeable: true },
-  { symbol: 'XPT/USD', oandaId: 'XPT_USD',   tvSymbol: 'OANDA:XPTUSD', assetClass: 'COMMODITY', description: 'Platinum Spot', digits: 2, oandaTradeable: true },
-  { symbol: 'XPD/USD', oandaId: 'XPD_USD',   tvSymbol: 'OANDA:XPDUSD', assetClass: 'COMMODITY', description: 'Palladium Spot', digits: 2, oandaTradeable: true },
+  { symbol: 'XAU/USD', oandaId: 'XAU_USD', tvSymbol: 'OANDA:XAUUSD',  assetClass: 'COMMODITY', description: 'Gold Spot', digits: 2, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'XAG/USD', oandaId: 'XAG_USD', tvSymbol: 'OANDA:XAGUSD',  assetClass: 'COMMODITY', description: 'Silver Spot', digits: 3, pipValue: 0.01, oandaTradeable: true },
+  { symbol: 'WTI Oil', oandaId: 'WTICO_USD', tvSymbol: 'TVC:USOIL',   assetClass: 'COMMODITY', description: 'WTI Crude Oil', digits: 2, pipValue: 0.01, oandaTradeable: true },
+  { symbol: 'Brent',   oandaId: 'BCO_USD',   tvSymbol: 'TVC:UKOIL',   assetClass: 'COMMODITY', description: 'Brent Crude Oil', digits: 2, pipValue: 0.01, oandaTradeable: true },
+  { symbol: 'Nat Gas', oandaId: 'NATGAS_USD', tvSymbol: 'TVC:NATURALGAS', assetClass: 'COMMODITY', description: 'Natural Gas', digits: 3, pipValue: 0.001, oandaTradeable: true },
+  { symbol: 'Copper',  oandaId: 'XCU_USD',   tvSymbol: 'OANDA:XCUUSD', assetClass: 'COMMODITY', description: 'Copper Spot', digits: 4, pipValue: 0.0001, oandaTradeable: true },
+  { symbol: 'XPT/USD', oandaId: 'XPT_USD',   tvSymbol: 'OANDA:XPTUSD', assetClass: 'COMMODITY', description: 'Platinum Spot', digits: 2, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'XPD/USD', oandaId: 'XPD_USD',   tvSymbol: 'OANDA:XPDUSD', assetClass: 'COMMODITY', description: 'Palladium Spot', digits: 2, pipValue: 1.0, oandaTradeable: true },
 
   // ── US Equities (CFDs via OANDA - non-tradeable on UK retail accounts) ───
-  { symbol: 'AAPL',   oandaId: 'AAPL_USD',  tvSymbol: 'NASDAQ:AAPL',  assetClass: 'US_STOCK', description: 'Apple Inc.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Technology' },
-  { symbol: 'MSFT',   oandaId: 'MSFT_USD',  tvSymbol: 'NASDAQ:MSFT',  assetClass: 'US_STOCK', description: 'Microsoft Corp.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Technology' },
-  { symbol: 'GOOGL',  oandaId: 'GOOGL_USD', tvSymbol: 'NASDAQ:GOOGL', assetClass: 'US_STOCK', description: 'Alphabet Inc.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Technology' },
-  { symbol: 'AMZN',   oandaId: 'AMZN_USD',  tvSymbol: 'NASDAQ:AMZN',  assetClass: 'US_STOCK', description: 'Amazon.com Inc.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Consumer' },
-  { symbol: 'NVDA',   oandaId: 'NVDA_USD',  tvSymbol: 'NASDAQ:NVDA',  assetClass: 'US_STOCK', description: 'NVIDIA Corp.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Technology' },
-  { symbol: 'TSLA',   oandaId: 'TSLA_USD',  tvSymbol: 'NASDAQ:TSLA',  assetClass: 'US_STOCK', description: 'Tesla Inc.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Automotive' },
-  { symbol: 'META',   oandaId: 'META_USD',  tvSymbol: 'NASDAQ:META',  assetClass: 'US_STOCK', description: 'Meta Platforms', digits: 2, oandaTradeable: false, region: 'US', sector: 'Technology' },
-  { symbol: 'NFLX',   oandaId: 'NFLX_USD',  tvSymbol: 'NASDAQ:NFLX',  assetClass: 'US_STOCK', description: 'Netflix Inc.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Media' },
-  { symbol: 'JPM',    oandaId: 'JPM_USD',   tvSymbol: 'NYSE:JPM',     assetClass: 'US_STOCK', description: 'JPMorgan Chase & Co.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Finance' },
-  { symbol: 'GS',     oandaId: 'GS_USD',    tvSymbol: 'NYSE:GS',      assetClass: 'US_STOCK', description: 'Goldman Sachs Group', digits: 2, oandaTradeable: false, region: 'US', sector: 'Finance' },
-  { symbol: 'BAC',    oandaId: 'BAC_USD',   tvSymbol: 'NYSE:BAC',     assetClass: 'US_STOCK', description: 'Bank of America Corp.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Finance' },
-  { symbol: 'V',      oandaId: 'V_USD',     tvSymbol: 'NYSE:V',       assetClass: 'US_STOCK', description: 'Visa Inc.', digits: 2, oandaTradeable: false, region: 'US', sector: 'Finance' },
+  { symbol: 'AAPL',   oandaId: 'AAPL_USD',  tvSymbol: 'NASDAQ:AAPL',  assetClass: 'US_STOCK', description: 'Apple Inc.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Technology' },
+  { symbol: 'MSFT',   oandaId: 'MSFT_USD',  tvSymbol: 'NASDAQ:MSFT',  assetClass: 'US_STOCK', description: 'Microsoft Corp.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Technology' },
+  { symbol: 'GOOGL',  oandaId: 'GOOGL_USD', tvSymbol: 'NASDAQ:GOOGL', assetClass: 'US_STOCK', description: 'Alphabet Inc.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Technology' },
+  { symbol: 'AMZN',   oandaId: 'AMZN_USD',  tvSymbol: 'NASDAQ:AMZN',  assetClass: 'US_STOCK', description: 'Amazon.com Inc.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Consumer' },
+  { symbol: 'NVDA',   oandaId: 'NVDA_USD',  tvSymbol: 'NASDAQ:NVDA',  assetClass: 'US_STOCK', description: 'NVIDIA Corp.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Technology' },
+  { symbol: 'TSLA',   oandaId: 'TSLA_USD',  tvSymbol: 'NASDAQ:TSLA',  assetClass: 'US_STOCK', description: 'Tesla Inc.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Automotive' },
+  { symbol: 'META',   oandaId: 'META_USD',  tvSymbol: 'NASDAQ:META',  assetClass: 'US_STOCK', description: 'Meta Platforms', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Technology' },
+  { symbol: 'NFLX',   oandaId: 'NFLX_USD',  tvSymbol: 'NASDAQ:NFLX',  assetClass: 'US_STOCK', description: 'Netflix Inc.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Media' },
+  { symbol: 'JPM',    oandaId: 'JPM_USD',   tvSymbol: 'NYSE:JPM',     assetClass: 'US_STOCK', description: 'JPMorgan Chase & Co.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Finance' },
+  { symbol: 'GS',     oandaId: 'GS_USD',    tvSymbol: 'NYSE:GS',      assetClass: 'US_STOCK', description: 'Goldman Sachs Group', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Finance' },
+  { symbol: 'BAC',    oandaId: 'BAC_USD',   tvSymbol: 'NYSE:BAC',     assetClass: 'US_STOCK', description: 'Bank of America Corp.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Finance' },
+  { symbol: 'V',      oandaId: 'V_USD',     tvSymbol: 'NYSE:V',       assetClass: 'US_STOCK', description: 'Visa Inc.', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'US', sector: 'Finance' },
 
   // ── UK Equities (CFDs via OANDA - non-tradeable on UK retail accounts) ───
-  { symbol: 'BARC',   oandaId: 'BARC_GBP',  tvSymbol: 'LSE:BARC',   assetClass: 'UK_STOCK', description: 'Barclays PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Finance' },
-  { symbol: 'LLOY',   oandaId: 'LLOY_GBP',  tvSymbol: 'LSE:LLOY',   assetClass: 'UK_STOCK', description: 'Lloyds Banking Group', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Finance' },
-  { symbol: 'SHEL',   oandaId: 'SHEL_GBP',  tvSymbol: 'LSE:SHEL',   assetClass: 'UK_STOCK', description: 'Shell PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Energy' },
-  { symbol: 'BP',     oandaId: 'BP_GBP',    tvSymbol: 'LSE:BP',     assetClass: 'UK_STOCK', description: 'BP PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Energy' },
-  { symbol: 'HSBA',   oandaId: 'HSBA_GBP',  tvSymbol: 'LSE:HSBA',   assetClass: 'UK_STOCK', description: 'HSBC Holdings PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Finance' },
-  { symbol: 'AZN',    oandaId: 'AZN_GBP',   tvSymbol: 'LSE:AZN',    assetClass: 'UK_STOCK', description: 'AstraZeneca PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Healthcare' },
-  { symbol: 'GSK',    oandaId: 'GSK_GBP',   tvSymbol: 'LSE:GSK',    assetClass: 'UK_STOCK', description: 'GSK PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Healthcare' },
-  { symbol: 'RIO',    oandaId: 'RIO_GBP',   tvSymbol: 'LSE:RIO',    assetClass: 'UK_STOCK', description: 'Rio Tinto PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Mining' },
-  { symbol: 'VOD',    oandaId: 'VOD_GBP',   tvSymbol: 'LSE:VOD',    assetClass: 'UK_STOCK', description: 'Vodafone Group PLC', digits: 2, oandaTradeable: false, region: 'UK', sector: 'Telecom' },
+  { symbol: 'BARC',   oandaId: 'BARC_GBP',  tvSymbol: 'LSE:BARC',   assetClass: 'UK_STOCK', description: 'Barclays PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Finance' },
+  { symbol: 'LLOY',   oandaId: 'LLOY_GBP',  tvSymbol: 'LSE:LLOY',   assetClass: 'UK_STOCK', description: 'Lloyds Banking Group', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Finance' },
+  { symbol: 'SHEL',   oandaId: 'SHEL_GBP',  tvSymbol: 'LSE:SHEL',   assetClass: 'UK_STOCK', description: 'Shell PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Energy' },
+  { symbol: 'BP',     oandaId: 'BP_GBP',    tvSymbol: 'LSE:BP',     assetClass: 'UK_STOCK', description: 'BP PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Energy' },
+  { symbol: 'HSBA',   oandaId: 'HSBA_GBP',  tvSymbol: 'LSE:HSBA',   assetClass: 'UK_STOCK', description: 'HSBC Holdings PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Finance' },
+  { symbol: 'AZN',    oandaId: 'AZN_GBP',   tvSymbol: 'LSE:AZN',    assetClass: 'UK_STOCK', description: 'AstraZeneca PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Healthcare' },
+  { symbol: 'GSK',    oandaId: 'GSK_GBP',   tvSymbol: 'LSE:GSK',    assetClass: 'UK_STOCK', description: 'GSK PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Healthcare' },
+  { symbol: 'RIO',    oandaId: 'RIO_GBP',   tvSymbol: 'LSE:RIO',    assetClass: 'UK_STOCK', description: 'Rio Tinto PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Mining' },
+  { symbol: 'VOD',    oandaId: 'VOD_GBP',   tvSymbol: 'LSE:VOD',    assetClass: 'UK_STOCK', description: 'Vodafone Group PLC', digits: 2, pipValue: 0.01, oandaTradeable: false, region: 'UK', sector: 'Telecom' },
 
   // ── Crypto ─────────────────────────────────────────────────────────────────
-  { symbol: 'BTC/USD', oandaId: 'BTC_USD', tvSymbol: 'COINBASE:BTCUSD', assetClass: 'CRYPTO', description: 'Bitcoin / US Dollar', digits: 2, oandaTradeable: false },
-  { symbol: 'ETH/USD', oandaId: 'ETH_USD', tvSymbol: 'COINBASE:ETHUSD', assetClass: 'CRYPTO', description: 'Ethereum / US Dollar', digits: 2, oandaTradeable: false },
-  { symbol: 'SOL/USD', oandaId: 'SOL_USD', tvSymbol: 'COINBASE:SOLUSD', assetClass: 'CRYPTO', description: 'Solana / US Dollar', digits: 3, oandaTradeable: false },
-  { symbol: 'XRP/USD', oandaId: 'XRP_USD', tvSymbol: 'COINBASE:XRPUSD', assetClass: 'CRYPTO', description: 'Ripple / US Dollar', digits: 4, oandaTradeable: false },
-  { symbol: 'LTC/USD', oandaId: 'LTC_USD', tvSymbol: 'COINBASE:LTCUSD', assetClass: 'CRYPTO', description: 'Litecoin / US Dollar', digits: 2, oandaTradeable: false },
+  { symbol: 'BTC/USD', oandaId: 'BTC_USD', tvSymbol: 'COINBASE:BTCUSD', assetClass: 'CRYPTO', description: 'Bitcoin / US Dollar', digits: 2, pipValue: 1.0, oandaTradeable: false },
+  { symbol: 'ETH/USD', oandaId: 'ETH_USD', tvSymbol: 'COINBASE:ETHUSD', assetClass: 'CRYPTO', description: 'Ethereum / US Dollar', digits: 2, pipValue: 1.0, oandaTradeable: false },
+  { symbol: 'SOL/USD', oandaId: 'SOL_USD', tvSymbol: 'COINBASE:SOLUSD', assetClass: 'CRYPTO', description: 'Solana / US Dollar', digits: 3, pipValue: 0.1, oandaTradeable: false },
+  { symbol: 'XRP/USD', oandaId: 'XRP_USD', tvSymbol: 'COINBASE:XRPUSD', assetClass: 'CRYPTO', description: 'Ripple / US Dollar', digits: 4, pipValue: 0.0001, oandaTradeable: false },
+  { symbol: 'LTC/USD', oandaId: 'LTC_USD', tvSymbol: 'COINBASE:LTCUSD', assetClass: 'CRYPTO', description: 'Litecoin / US Dollar', digits: 2, pipValue: 1.0, oandaTradeable: false },
 ];
 
 // ── Convenience helpers ────────────────────────────────────────────────────
@@ -143,19 +146,15 @@ export function getDisplaySymbol(symbolOrOandaId: string): string {
 export function getDecimalPlaces(symbolOrOandaId: string): number {
   const inst = getInstrument(symbolOrOandaId);
   if (inst) return inst.digits;
-  const s = symbolOrOandaId.toUpperCase();
+  const s = (symbolOrOandaId || '').toUpperCase();
   if (s.includes('JPY')) return 3;
-  if (s.startsWith('XAU') || s.startsWith('XAG')) return 2;
-  if (s.includes('SPX') || s.includes('NAS') || s.includes('US30') || s.includes('UK100')) return 1;
   return 5;
 }
 
 export function getPipValue(symbolOrOandaId: string): number {
-  const s = symbolOrOandaId.toUpperCase();
-  if (s.includes('JPY')) return 0.01;
-  if (s.startsWith('XAU')) return 1.0;
-  if (s.startsWith('SPX') || s.includes('SPX500') || s.includes('NAS100') || s.includes('US30') || s.includes('UK100')) return 1.0;
-  return 0.0001;
+  const inst = getInstrument(symbolOrOandaId);
+  if (inst) return inst.pipValue;
+  return getCorePipValue(symbolOrOandaId);
 }
 
 export function getByOandaId(oandaId: string): Instrument | undefined {

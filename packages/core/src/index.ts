@@ -6,3 +6,4 @@ export * from './state';
 export * from './mode';
 export * from './lock';
 export * from './assert-schema';
+export * from './instruments';

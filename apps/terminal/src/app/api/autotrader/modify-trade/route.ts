@@ -12,7 +12,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../../lib/auth';
 import { RiskGate, FTMO_STANDARD_PROFILE } from '@meridian/risk';
-import { createPrice } from '@meridian/core';
+import { createPrice, getMode } from '@meridian/core';
 import { parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
 
 import { getPipValue, getDecimalPlaces } from '../../../../lib/instruments';
@@ -86,6 +86,19 @@ export async function POST(request: Request) {
     await requireSession();
   } catch {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
+  }
+
+  // Gate behind mode machine: reject unless mode is LIVE and execution is enabled
+  const mode = await getMode();
+  const tier4Enabled = process.env.TIER_4_ENABLED === 'true';
+
+  if (mode !== 'LIVE' || !tier4Enabled) {
+    return NextResponse.json(
+      {
+        error: `FORBIDDEN: Trade modification is disabled. Mode: ${mode}, TIER_4_ENABLED: ${tier4Enabled}.`,
+      },
+      { status: 403 }
+    );
   }
 
   const token = getOandaApiKey();

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../lib/auth';
-import { insertCycleLog } from '@meridian/core';
+import { insertCycleLog, getMode } from '@meridian/core';
 import { getOandaApiKey } from '@meridian/execute';
 import crypto from 'crypto';
 
@@ -11,14 +11,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 });
   }
 
-  // TIER_4_ENABLED: server-side env var only. NEXT_PUBLIC_ variant must never
-  // gate execution — a client-visible variable cannot authorise broker submission.
+  // Gate behind mode machine: reject unless mode is LIVE and execution is enabled
+  const mode = await getMode();
   const tier4Enabled = process.env.TIER_4_ENABLED === 'true';
-  if (!tier4Enabled) {
+
+  if (mode !== 'LIVE' || !tier4Enabled) {
     return NextResponse.json(
       {
-        error:
-          'TIER_4_DISABLED: Live execution is config-disabled. Set TIER_4_ENABLED=true in server environment.',
+        error: `FORBIDDEN: Close trade is disabled. Mode: ${mode}, TIER_4_ENABLED: ${tier4Enabled}.`,
       },
       { status: 403 }
     );

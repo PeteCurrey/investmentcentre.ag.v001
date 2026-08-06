@@ -114,7 +114,6 @@ export async function buildAccountRiskState(
 
   // 2. Fetch OANDA realized PnL today (since 17:00 ET day rollover)
   const dayResetIso = getOandaDayResetIso();
-  const dayDate = dayResetIso.substring(0, 10);
   let realizedPnlToday = 0n as ScaledInteger;
 
   // Duck-type check: any adapter that implements getRealizedPnlToday is supported.
@@ -135,27 +134,54 @@ export async function buildAccountRiskState(
   }
 
   // 3. Read/upsert startingDailyBalance and highWaterMark from meridian.account_day
+  //
+  // DATE STRATEGY
+  // The OANDA trading day resets at 17:00 America/New_York, not at UTC midnight.
+  // We key account_day rows by UTC calendar date (dayDate = today's YYYY-MM-DD in
+  // UTC) rather than by the OANDA-reset ISO timestamp for two reasons:
+  //   a) The OANDA reset at ~21:00 UTC falls within the same UTC calendar date as
+  //      the session that follows it until ~00:00 UTC — only a small 3-hour window
+  //      would ever straddle a UTC date boundary.
+  //   b) The spurious pattern observed in production (yesterday's row supplying
+  //      today's startingDailyBalance) arose because getOandaDayResetIso returns
+  //      the start-of-current-session timestamp, whose date matches yesterday even
+  //      while cycles run today.
+  //
+  // TWO DISTINCT QUERIES (intentional):
+  //   Query A  — today's UTC-date row  →  startingDailyBalance  (must exist)
+  //   Query B  — MAX over all rows     →  highWaterMark          (all-time peak)
   let startingDailyBalance: ScaledInteger | null = null;
   let storedHwm: ScaledInteger = currentEquity;
+
+  // Today's key is the UTC calendar date, independent of OANDA day reset time.
+  const utcToday = new Date().toISOString().substring(0, 10);
 
   try {
     const sb = getSupabaseServiceClient();
 
-    // Query existing row for today
-    const { data: todayRow } = await sb
+    // Query A: today's row for startingDailyBalance
+    const { data: todayRow, error: todayErr } = await sb
       .schema('meridian')
       .from('account_day')
-      .select('*')
-      .eq('day_date', dayDate)
+      .select('opening_balance, high_water_mark')
+      .eq('day_date', utcToday)
       .maybeSingle();
 
-    // Query max high water mark ever recorded
-    const { data: maxRows } = await sb
+    if (todayErr) {
+      log.error('account_day today-row query failed', { error: todayErr.message });
+    }
+
+    // Query B: all-time high water mark across every day (independent of today)
+    const { data: maxRows, error: maxErr } = await sb
       .schema('meridian')
       .from('account_day')
       .select('high_water_mark')
       .order('high_water_mark', { ascending: false })
       .limit(1);
+
+    if (maxErr) {
+      log.error('account_day hwm-max query failed', { error: maxErr.message });
+    }
 
     const maxEverHwm =
       maxRows && maxRows.length > 0
@@ -163,11 +189,13 @@ export async function buildAccountRiskState(
         : (0n as ScaledInteger);
 
     if (todayRow) {
+      // Today's row exists — use its opening_balance as the daily-loss baseline.
       startingDailyBalance = BigInt(todayRow.opening_balance) as ScaledInteger;
       const rowHwm = BigInt(todayRow.high_water_mark) as ScaledInteger;
+      // storedHwm = max(today's stored hwm, all-time max across all days)
       storedHwm = rowHwm > maxEverHwm ? rowHwm : maxEverHwm;
 
-      // Update HWM monotonically if current equity exceeds stored value
+      // Monotonically advance HWM if current equity exceeds both stored values
       if (currentEquity > storedHwm) {
         storedHwm = currentEquity;
         await sb
@@ -177,10 +205,11 @@ export async function buildAccountRiskState(
             high_water_mark: String(currentEquity),
             high_water_mark_updated_at: new Date().toISOString(),
           })
-          .eq('day_date', dayDate);
+          .eq('day_date', utcToday);
       }
     } else {
-      // Create new row for today
+      // No row for today yet — create one with current balance as opening.
+      // This happens on the first cycle of each calendar day.
       storedHwm = currentEquity > maxEverHwm ? currentEquity : maxEverHwm;
       startingDailyBalance = currentBalance;
 
@@ -188,7 +217,7 @@ export async function buildAccountRiskState(
         .schema('meridian')
         .from('account_day')
         .insert({
-          day_date: dayDate,
+          day_date: utcToday,
           opening_balance: String(currentBalance),
           opening_balance_captured_at: new Date().toISOString(),
           high_water_mark: String(storedHwm),
@@ -196,9 +225,12 @@ export async function buildAccountRiskState(
         });
 
       if (insertErr) {
-        log.error('Failed to insert account_day row for today', {
+        log.error('Failed to insert account_day row for today — will reject this cycle', {
           error: insertErr.message,
+          utcToday,
         });
+        // Null out so the guard below rejects rather than trading on a stale baseline.
+        startingDailyBalance = null;
       }
     }
   } catch (err: unknown) {

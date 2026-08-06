@@ -3,6 +3,7 @@
  *
  * Covers:
  * - 401 Unauthorized without session.
+ * - 403 when mode is not LIVE (mode gate).
  * - 404 when trade is not found on OANDA.
  * - Rejection when move_sl widens stop loss (STOP_WIDENING_PROHIBITED).
  * - Break-even uses server-fetched entry price and validates floating profit.
@@ -17,10 +18,12 @@ import {
   setOandaMockConfig,
   setupFetchMock,
   restoreFetchMock,
+  getMockDb,
 } from '../../../test/setup';
 
 describe('POST /api/autotrader/modify-trade Integration Tests', () => {
   let validCookie: string;
+  const origTier4 = process.env.TIER_4_ENABLED;
 
   beforeEach(async () => {
     setupFetchMock();
@@ -28,10 +31,30 @@ describe('POST /api/autotrader/modify-trade Integration Tests', () => {
     resetOandaMockConfig();
     validCookie = await getValidSessionCookie();
     setActiveCookie(validCookie);
+    // Gate requires LIVE mode + TIER_4_ENABLED to reach OANDA logic
+    getMockDb().mode = 'LIVE';
+    process.env.TIER_4_ENABLED = 'true';
   });
 
   afterEach(() => {
     restoreFetchMock();
+    if (origTier4 !== undefined) {
+      process.env.TIER_4_ENABLED = origTier4;
+    } else {
+      delete process.env.TIER_4_ENABLED;
+    }
+  });
+
+  it('rejects with 403 when mode is not LIVE', async () => {
+    getMockDb().mode = 'OBSERVE';
+    const req = new Request('http://localhost:3000/api/autotrader/modify-trade', {
+      method: 'POST',
+      body: JSON.stringify({ tradeId: 'trade_101', action: 'move_sl', value: '1.2900' }),
+    });
+    const res = await modifyTradePOST(req);
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toContain('FORBIDDEN');
   });
 
   it('rejects with 404 when tradeId is not found on OANDA', async () => {

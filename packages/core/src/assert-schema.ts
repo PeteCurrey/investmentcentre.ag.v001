@@ -21,6 +21,7 @@ export const REQUIRED_TABLES = [
   'account_day',
   'audit_log',
   'autotrader_state',
+  'consumed_mode_transitions',
   'cycle_log',
   'entities',
   'entity_identifiers',

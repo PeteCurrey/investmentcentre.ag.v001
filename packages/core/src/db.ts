@@ -23,32 +23,13 @@ function resolveSupabaseUrl(): string | undefined {
 }
 
 /**
- * @deprecated Nothing server-side should use the unauthenticated anon key.
- * All server-side database access must use getSupabaseServiceClient().
- * This function delegates to getSupabaseServiceClient() if SUPABASE_SECRET_KEY is present.
+ * @deprecated PROHIBITED: Nothing server-side should use the unauthenticated anon key.
+ * All server-side database access MUST use getSupabaseServiceClient().
  */
 export function getSupabaseClient(): AnySupabaseClient {
-  if (process.env.SUPABASE_SECRET_KEY) {
-    return getSupabaseServiceClient();
-  }
-  if (supabaseInstance) {
-    return supabaseInstance;
-  }
-
-  const supabaseUrl = resolveSupabaseUrl();
-  const supabaseAnonKey =
-    process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error(
-      'Database Initialization Error: Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) or SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) environment variables.'
-    );
-  }
-
-  supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
-    db: { schema: 'meridian' },
-  });
-  return supabaseInstance;
+  throw new Error(
+    'SECURITY EXCEPTION: getSupabaseClient() is prohibited. All database access must use getSupabaseServiceClient().'
+  );
 }
 
 /**

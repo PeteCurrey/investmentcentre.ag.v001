@@ -64,7 +64,8 @@ function getMaxStopDistancePct(inst: ReturnType<typeof getInstrument>): number {
 // ─── Cycle Entry Point ────────────────────────────────────────────────────────
 
 export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
-  const cycleId = providedCycleId ?? crypto.randomUUID();
+  const minuteBucket = Math.floor(Date.now() / 60_000);
+  const cycleId = providedCycleId ?? `cycle-${minuteBucket}`;
 
   // ── 0. Assert schema completeness ──────────────────────────────────────────
   // If any required table is missing (unapplied migration), throw immediately.
@@ -313,6 +314,11 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
     }
     quoteToAccountRates[accountCurrency] = 1.0; // always safe
 
+    // Fetch account risk state ONCE per cycle (fetches balance, equity, positions, transactions once)
+    const baseAccountRiskState = await buildAccountRiskState(adapter, accountId, {
+      quoteToAccountRates,
+    });
+
     for (const rawSymbol of activeInstruments) {
       const logTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
       const displaySymbol = getDisplaySymbol(rawSymbol);
@@ -441,11 +447,11 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       const pricingDetails = oandaId ? oandaPricingMap[oandaId] : undefined;
       const currentSpreadPips = pricingDetails?.spreadPips;
 
-      const accountRiskState = await buildAccountRiskState(adapter, accountId, {
+      const accountRiskState = {
+        ...baseAccountRiskState,
         instrument: displaySymbol,
-        quoteToAccountRates,
         currentSpreadPips,
-      });
+      };
 
       // ── Stop distance sanity check ─────────────────────────────────────────
       // A stop that is an implausibly large % of price indicates a unit conversion
@@ -501,14 +507,14 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
         continue;
       }
 
-      // IDEMPOTENCY KEY: deterministic within a 1-minute window.
-      // Using cycleId (which is random per invocation) would re-submit the same
-      // signal on every cron retry within the same minute window. Instead we
-      // key on (accountId, displaySymbol, direction, minute-bucket) so that
-      // any invocation within the same minute produces the same key.
+      // IDEMPOTENCY KEY: deterministic within a 1-minute window per instrument cycle slot.
+      // We key strictly on (accountId, displaySymbol, minute-bucket) WITHOUT direction.
+      // This ensures that any invocation for this instrument slot within the same minute
+      // produces the exact same key, preventing duplicate order submissions even if a
+      // signal flips direction within the same minute.
       const minuteBucket = Math.floor(Date.now() / 60_000);
       const intentId = crypto.createHash('sha256')
-        .update(`${accountId}:${displaySymbol}:${direction}:${minuteBucket}`)
+        .update(`${accountId}:${displaySymbol}:${minuteBucket}`)
         .digest('hex')
         .slice(0, 36);
 

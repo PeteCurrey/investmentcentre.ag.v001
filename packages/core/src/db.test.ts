@@ -36,32 +36,10 @@ describe('packages/core/db', () => {
     resetSupabaseClient();
   });
 
-  it('throws when both URL and Key are missing', () => {
+  it('getSupabaseClient throws security exception unconditionally', () => {
     expect(() => getSupabaseClient()).toThrow(
-      'Database Initialization Error: Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) or SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) environment variables.'
+      'SECURITY EXCEPTION: getSupabaseClient() is prohibited. All database access must use getSupabaseServiceClient().'
     );
-  });
-
-  it('throws when URL is set but Key is missing', () => {
-    process.env.SUPABASE_URL = 'https://valid-supabase-url.supabase.co';
-    expect(() => getSupabaseClient()).toThrow(
-      'Database Initialization Error: Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) or SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) environment variables.'
-    );
-  });
-
-  it('throws when Key is set but URL is missing', () => {
-    process.env.SUPABASE_ANON_KEY = 'valid-anon-key-12345';
-    expect(() => getSupabaseClient()).toThrow(
-      'Database Initialization Error: Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) or SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY) environment variables.'
-    );
-  });
-
-  it('returns initialized SupabaseClient when both URL and Key are set', () => {
-    process.env.SUPABASE_URL = 'https://valid-supabase-url.supabase.co';
-    process.env.SUPABASE_ANON_KEY = 'valid-anon-key-12345';
-    const client = getSupabaseClient();
-    expect(client).toBeDefined();
-    expect(typeof client.from).toBe('function');
   });
 
   it('getSupabaseServiceClient returns service client when SUPABASE_SECRET_KEY is set', () => {

@@ -35,7 +35,7 @@ MERIDIAN executes real trades with real money. Every safeguard below is load-bea
 2. **The mode state machine is absolute.** OBSERVE → PAPER → LIVE. No direct OBSERVE→LIVE transition may exist in code. Transitions require explicit human action and are logged immutably.
 3. **Money is scaled integers.** `bigint` + scale. Floats banned in `packages/core/money`, `risk`, `execute`, `edge`. CI fails on a float type in those paths.
 4. **The kill switch is on every screen** and halts all automation instantly. Not behind a menu.
-5. **Automation Tier 4 (EXECUTE) ships disabled** at config level, enabled only by explicit deliberate human change. Tiers 1–3 never send anything anywhere.
+5. **Automation Tier 4 (EXECUTE) ships disabled (`TIER_4_ENABLED=false`)** at config level as its mandatory resting state, enabled only by explicit deliberate human change when going LIVE. Tiers 1–3 never send anything anywhere. All broker write routes (`/api/trade`, `/api/close-trade`, `/api/autotrader/modify-trade`, `/api/autotrader/run-cycle`) enforce `mode === 'LIVE' && TIER_4_ENABLED`.
 6. **Every gate decision is persisted immutably** with inputs, profile version and reason — approvals and rejections alike.
 7. If a task appears to require bypassing any of the above, **stop and ask.** Do not find a workaround.
 

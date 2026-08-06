@@ -1,4 +1,4 @@
-import { Result, ok, err, ScaledInteger } from '@meridian/core';
+import { Result, ok, err, ScaledInteger, getPipValue } from '@meridian/core';
 import { OrderIntent, ApprovalToken, RiskGate } from '@meridian/risk';
 import { BrokerAdapter, BrokerOrder, BrokerPosition, BrokerAccountState } from './index';
 import { z } from 'zod';
@@ -168,7 +168,7 @@ export class OandaBrokerAdapter implements BrokerAdapter {
       const slNum = Number(intent.stopLossPrice.price) / Math.pow(10, intent.stopLossPrice.scale);
       const impliedDistance = Math.abs(entryNum - slNum);
       const trailingDistanceNum = parseFloat(intent.trailingStopDistance);
-      const pipVal = intent.instrument.includes('JPY') ? 0.01 : (intent.instrument.startsWith('XAU') || intent.instrument.startsWith('SPX') ? 1.0 : 0.0001);
+      const pipVal = getPipValue(intent.instrument);
       const diffPips = Math.abs(impliedDistance - trailingDistanceNum) / pipVal;
 
       if (diffPips > 1.0) {
@@ -178,8 +178,8 @@ export class OandaBrokerAdapter implements BrokerAdapter {
 
     // SECURITY GUARD 5: OANDA Minimum Distance Validation
     // Prevent OANDA broker rejection by validating protection distances against instrument minimums before submission.
-    const pipVal = intent.instrument.includes('JPY') ? 0.01 : (intent.instrument.startsWith('XAU') || intent.instrument.startsWith('SPX') ? 1.0 : 0.0001);
-    const minDistancePips = intent.instrument.startsWith('XAU') ? 5.0 : (intent.instrument.startsWith('SPX') ? 2.0 : 3.0);
+    const pipVal = getPipValue(intent.instrument);
+    const minDistancePips = intent.instrument.includes('XAU') ? 5.0 : (intent.instrument.includes('SPX') ? 2.0 : 3.0);
     const minDistanceVal = minDistancePips * pipVal;
 
     if (intent.trailingStopDistance) {
@@ -513,11 +513,9 @@ export class OandaBrokerAdapter implements BrokerAdapter {
           const midStr = mid.toPrecision(7).replace(/\.?0+$/, '');
           const priceStr = mid.toFixed(Math.max(2, (midStr.split('.')[1] || '').length));
 
-          // Calculate spread in pips
+          // Calculate spread in pips using authoritative getPipValue lookup
           const displaySymbol = p.instrument.replace('_', '/');
-          let pipVal = 0.0001;
-          if (displaySymbol.includes('JPY')) pipVal = 0.01;
-          else if (displaySymbol.startsWith('XAU') || displaySymbol.startsWith('SPX')) pipVal = 1.0;
+          const pipVal = getPipValue(displaySymbol);
           const spreadDiff = Math.max(0, ask - bid);
           const spreadPips = parseFloat((spreadDiff / pipVal).toFixed(2));
 

@@ -69,14 +69,12 @@ export function calculateDonchianChannels(
   return { upper, lower };
 }
 
+import { getPipValue } from '@meridian/core';
+
 /**
- * Convert ATR value (in price terms) to pips for a given instrument.
- * XAU = 1 pip per $0.01 (handled as cents). FX JPY = 0.01 per pip. Otherwise 0.0001 per pip.
+ * Convert ATR value (in price terms) to pips for a given instrument using authoritative getPipValue lookup.
  */
 export function atrToPips(atr: number, instrument: string): number {
-  const s = instrument.toUpperCase();
-  if (s.includes('JPY')) return atr / 0.01;
-  if (s.startsWith('XAU') || s.includes('XAU')) return atr / 1.0; // 1 pip/point for Gold = $1.00
-  if (s.startsWith('SPX') || s.includes('SPX') || s.includes('NAS') || s.includes('US30') || s.includes('UK100')) return atr / 1.0; // 1 point for indices = 1.0
-  return atr / 0.0001;
+  return atr / getPipValue(instrument);
 }
+

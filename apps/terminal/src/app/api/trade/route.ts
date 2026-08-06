@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireSession } from '../../../lib/auth';
 import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState } from '@meridian/risk';
-import { toScaledInteger, createPrice, moneyToString, insertCycleLog, insertGateDecision } from '@meridian/core';
+import { toScaledInteger, createPrice, moneyToString, insertCycleLog, insertGateDecision, getMode } from '@meridian/core';
 import crypto from 'crypto';
 
 export async function GET() {
@@ -52,13 +52,14 @@ export async function POST(request: Request) {
     currentPrice,
   } = body;
 
-  // Server-side env var only — never the NEXT_PUBLIC_ variant.
+  // Gate behind mode machine: reject unless mode is LIVE and execution is enabled
+  const mode = await getMode();
   const tier4Enabled = process.env.TIER_4_ENABLED === 'true';
-  if (!tier4Enabled) {
+
+  if (mode !== 'LIVE' || !tier4Enabled) {
     return NextResponse.json(
       {
-        error:
-          'TIER_4_DISABLED: Live execution is config-disabled. Set TIER_4_ENABLED=true in server environment.',
+        error: `FORBIDDEN: Live trading is disabled. Mode: ${mode}, TIER_4_ENABLED: ${tier4Enabled}.`,
       },
       { status: 403 }
     );
@@ -94,6 +95,54 @@ export async function POST(request: Request) {
   }
 
   const accountState = stateResult.value;
+  const accountCurrency = accountState.currency?.toUpperCase();
+  if (!accountCurrency) {
+    return NextResponse.json(
+      { error: 'ACCOUNT_CURRENCY_MISSING: OANDA broker account state is missing required currency field.' },
+      { status: 500 }
+    );
+  }
+
+  // Fetch live pricing with spread details to populate currentSpreadPips and build quoteToAccountRates
+  const oandaId = instrument.replace('/', '_');
+  let currentSpreadPips: number | undefined;
+  let oandaPrices: Record<string, string> = {};
+
+  const pricingRes = await (adapter as any).getLivePricing([oandaId, 'GBP_USD', 'EUR_USD']);
+  if (pricingRes.success && pricingRes.value) {
+    currentSpreadPips = pricingRes.value[oandaId]?.spreadPips;
+    for (const [k, v] of Object.entries(pricingRes.value)) {
+      oandaPrices[k] = (v as any).price;
+    }
+  } else {
+    // Fallback if batch pricing fails
+    const batchResult = await adapter.getLivePrices([oandaId, 'GBP_USD', 'EUR_USD']);
+    if (batchResult.success) {
+      oandaPrices = batchResult.value;
+    }
+  }
+
+  // Build quoteToAccountRates dynamically
+  const quoteToAccountRates: Record<string, number> = {};
+  quoteToAccountRates[accountCurrency] = 1.0;
+
+  const gbpUsdPrice = parseFloat(oandaPrices['GBP_USD'] ?? '0');
+  const eurUsdPrice = parseFloat(oandaPrices['EUR_USD'] ?? '0');
+
+  if (quoteCurrency === accountCurrency) {
+    quoteToAccountRates[quoteCurrency] = 1.0;
+  } else if (quoteCurrency === 'USD') {
+    if (accountCurrency === 'GBP' && gbpUsdPrice > 0) {
+      quoteToAccountRates['USD'] = 1.0 / gbpUsdPrice;
+    } else if (accountCurrency === 'EUR' && eurUsdPrice > 0) {
+      quoteToAccountRates['USD'] = 1.0 / eurUsdPrice;
+    } else {
+      quoteToAccountRates['USD'] = 1.0;
+    }
+  } else {
+    quoteToAccountRates[quoteCurrency] = 1.0;
+  }
+  quoteToAccountRates[accountCurrency] = 1.0;
 
   const entryStr =
     orderType === 'LIMIT' && limitPrice ? limitPrice : currentPrice ?? '0';
@@ -150,10 +199,15 @@ export async function POST(request: Request) {
     requestedAt: new Date().toISOString(),
   };
 
-  const accountRiskState = await buildAccountRiskState(adapter, accountId, { instrument });
+  const accountRiskState = await buildAccountRiskState(adapter, accountId, {
+    instrument,
+    quoteToAccountRates,
+    currentSpreadPips,
+  });
+
   const decision = RiskGate.evaluate(intent, FTMO_STANDARD_PROFILE, accountRiskState);
 
-  // Persist gate decision
+  // Persist gate decision with complete fields
   await insertGateDecision({
     orderIntentId: intent.id,
     instrument,
@@ -166,6 +220,7 @@ export async function POST(request: Request) {
     profileSnapshot: FTMO_STANDARD_PROFILE as unknown as Record<string, unknown>,
     accountState: {
       accountId,
+      accountCurrency: accountRiskState.accountCurrency,
       startingDailyBalance: String(accountRiskState.startingDailyBalance),
       currentEquity: String(accountRiskState.currentEquity),
       highWaterMark: String(accountRiskState.highWaterMark),
@@ -173,6 +228,9 @@ export async function POST(request: Request) {
       realizedPnlToday: String(accountRiskState.realizedPnlToday),
       unrealizedPnl: String(accountRiskState.unrealizedPnl),
       isNewsBlackoutActive: accountRiskState.isNewsBlackoutActive,
+      newsStatus: accountRiskState.newsStatus,
+      openPositions: accountRiskState.openPositions ?? [],
+      currentSpreadPips: accountRiskState.currentSpreadPips ?? null,
     },
     approved: decision.approved,
     reasonCode: decision.reasonCode ?? null,

@@ -7,11 +7,14 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build --workspace=packages/core --workspace=packages/execute --workspace=packages/risk --workspace=packages/signals --workspace=packages/adapters --workspace=packages/automation --workspace=packages/brief --workspace=packages/council --workspace=packages/delta --workspace=packages/edge --workspace=packages/horizon --workspace=packages/registry --workspace=packages/resolve --workspace=packages/salience --workspace=packages/ui --if-present",
+    "build:apps": "npm run build --workspace=apps/terminal --workspace=apps/scheduler --if-present",
+    "build": "npm run build:packages && npm run build:apps",
     "test": "vitest run",
-    "test:ci": "vitest run && npm run check:floats && npm run check:data-integrity",
+    "test:ci": "vitest run && npm run check:floats && npm run check:data-integrity && npm run check:fresh-build",
     "check:floats": "node scripts/ci-check-float-safety.mjs",
     "check:data-integrity": "node scripts/ci-check-data-integrity.mjs",
+    "check:fresh-build": "node scripts/ci-check-fresh-build.mjs",
     "test:core": "node --experimental-vm-modules node_modules/.bin/vitest run packages/core/src",
     "test:risk": "node --experimental-vm-modules node_modules/.bin/vitest run packages/risk/src",
     "tsc": "node_modules/.bin/tsc"
