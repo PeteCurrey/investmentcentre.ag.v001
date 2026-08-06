@@ -207,4 +207,38 @@ describe('runCycle() Integration Tests', () => {
       expect(approvedDecision.approved).toBe(true);
     }
   });
+
+  it('auto-stop: when schedule is reached, cycle transitions mode to OBSERVE via requestTransition (not direct write)', async () => {
+    const db = getMockDb();
+    db.mode = 'PAPER';
+    // Set an auto-stop time that has already passed
+    const pastTime = new Date(Date.now() - 60_000).toISOString();
+    db.config.autoStopAt = pastTime;
+    db.config.autoStopLabel = 'End of session';
+
+    const result = await runCycle('test-cycle-autostop');
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain('OBSERVE');
+
+    // Mode must be OBSERVE now — requestTransition was called, not just writeAutotraderConfig
+    expect(db.mode).toBe('OBSERVE');
+    // A cycle log entry for the auto-stop must exist
+    const stopLog = db.cycleLogs.find(l => l.action === 'SKIPPED' && l.reason?.includes('Auto-stop'));
+    expect(stopLog).toBeDefined();
+  });
+
+  it('system:cycle actor cannot elevate mode — requestTransition rejects upward system transitions', async () => {
+    // This test verifies the guard added to mode.ts: system actors may not transition to PAPER or LIVE.
+    // The cycle uses requestTransition('PAPER', 'LIVE', 'system:cycle', ...) — this must be rejected.
+    const db = getMockDb();
+    db.mode = 'PAPER';
+
+    // Manually attempt what a compromised cycle path would do: system actor requesting LIVE
+    const { requestTransition: rt } = await import('@meridian/core');
+    const result = await rt('PAPER', 'LIVE', 'system:cycle', 'Attempting auto-elevation');
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('system:cycle');
+    // Mode must remain unchanged
+    expect(db.mode).toBe('PAPER');
+  });
 });

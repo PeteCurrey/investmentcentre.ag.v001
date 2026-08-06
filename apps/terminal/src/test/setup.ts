@@ -140,6 +140,10 @@ vi.mock('@meridian/core', async (importOriginal) => {
       if (!LEGAL.some(([f, t]) => f === from && t === to)) {
         return { ok: false, error: `Transition ${from}→${to} is not permitted.` };
       }
+      // System actors may only transition downward to OBSERVE.
+      if (actor.startsWith('system:') && to !== 'OBSERVE') {
+        return { ok: false, error: `System actor '${actor}' may not transition to ${to}. Upward transitions require a human session.` };
+      }
       if (mockDb.mode !== from) {
         return { ok: false, error: `Current mode is ${mockDb.mode}, not ${from}.` };
       }

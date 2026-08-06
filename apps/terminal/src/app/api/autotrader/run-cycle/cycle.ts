@@ -26,6 +26,7 @@ import {
   getSupabaseServiceClient,
   assertSchemaComplete,
 } from '@meridian/core';
+import { requestTransition } from '@meridian/core';
 import {
   getInstrument,
   getOandaId,
@@ -113,16 +114,29 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       config.autoStopAt &&
       new Date() >= new Date(config.autoStopAt)
     ) {
-      await writeAutotraderConfig({
-        autoStopAt: null,
-        autoStopLabel: null,
-        updatedBy: 'system:auto-stop',
-      });
+      // requestTransition writes mode_transitions first, then updates autotrader_state.mode.
+      // System actors may only transition DOWNWARD to OBSERVE — enforced by mode.ts.
+      const autoStopResult = await requestTransition(
+        mode,
+        'OBSERVE',
+        'system:auto-stop',
+        `Auto-stop schedule reached at ${config.autoStopAt}`
+      );
+      if (autoStopResult.ok) {
+        // Clear the schedule fields now that the transition is recorded.
+        await writeAutotraderConfig({
+          autoStopAt: null,
+          autoStopLabel: null,
+          updatedBy: 'system:auto-stop',
+        });
+      }
       await insertCycleLog({
         cycleId,
         instrument: null,
         action: 'SKIPPED',
-        reason: `Auto-stop schedule reached at ${config.autoStopAt}. Engine returning to OBSERVE.`,
+        reason: autoStopResult.ok
+          ? `Auto-stop schedule reached at ${config.autoStopAt}. Transitioned to OBSERVE.`
+          : `Auto-stop schedule reached at ${config.autoStopAt} but transition failed: ${autoStopResult.error}`,
         orderId: null,
       });
       return {
@@ -693,8 +707,10 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       });
     }
 
-    // ── 10. Update last-cycle metadata on the config row ────────────────────
-    await writeAutotraderConfig({ updatedBy: 'system:cycle' });
+    // NOTE: Do NOT call writeAutotraderConfig here. The cycle must never
+    // overwrite updated_by — that column must always reflect the last human
+    // actor who changed a config field or mode. Stamping 'system:cycle' erases
+    // the audit trail. No metadata update is needed at cycle end.
 
     return {
       success: true,

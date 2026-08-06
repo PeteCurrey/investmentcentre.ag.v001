@@ -7,6 +7,8 @@
  * - OBSERVE→LIVE is forbidden in code and enforced by a DB CHECK constraint.
  * - getMode() returns 'OBSERVE' on any failure. Fails closed, always.
  * - requestTransition() requires a non-empty reason string.
+ * - System actors (actor starting with 'system:') may ONLY transition to OBSERVE.
+ *   No server-side code path may autonomously elevate mode to PAPER or LIVE.
  * - Every transition is persisted to meridian.mode_transitions before the
  *   state row is updated, so the log is always at least as fresh as the state.
  */
@@ -79,6 +81,16 @@ export async function requestTransition(
     return {
       ok: false,
       error: `Transition ${from}→${to} is not permitted. Legal transitions: OBSERVE↔PAPER, PAPER↔LIVE, LIVE→OBSERVE.`,
+    };
+  }
+
+  // System actors (actor starting with 'system:') may ONLY transition downward to OBSERVE.
+  // No server-side code path may autonomously elevate mode into PAPER or LIVE.
+  // Only a human session (not prefixed 'system:') may request an upward transition.
+  if (actor.startsWith('system:') && to !== 'OBSERVE') {
+    return {
+      ok: false,
+      error: `System actor '${actor}' may not transition to ${to}. Server processes may only transition downward to OBSERVE. Upward transitions to PAPER or LIVE require a human session.`,
     };
   }
 
