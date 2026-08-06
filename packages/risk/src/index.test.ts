@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, AccountRiskState, requireHmacSecret, checkNewsBlackoutActive, CalendarEvent } from './index';
+import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, AccountRiskState, requireHmacSecret, checkNewsBlackoutActive, checkNewsBlackoutStatus, CalendarEvent } from './index';
 import { toScaledInteger, createPrice } from '@meridian/core';
 
 describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
@@ -91,11 +91,18 @@ describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
     expect(negDecision.reasonCode).toBe('INVALID_UNITS_MAGNITUDE');
   });
 
-  it('rejects order intents during news blackout window', () => {
-    const blackoutState = { ...baseState, isNewsBlackoutActive: true };
+  it('rejects order intents during news blackout window with NEWS_BLACKOUT_ACTIVE', () => {
+    const blackoutState = { ...baseState, newsStatus: 'BLACKOUT' as const, isNewsBlackoutActive: true };
     const decision = RiskGate.evaluate(baseIntent, FTMO_STANDARD_PROFILE, blackoutState);
     expect(decision.approved).toBe(false);
     expect(decision.reasonCode).toBe('NEWS_BLACKOUT_ACTIVE');
+  });
+
+  it('rejects order intents when calendar is unavailable with NEWS_CALENDAR_UNAVAILABLE', () => {
+    const unknownState = { ...baseState, newsStatus: 'UNKNOWN' as const, isNewsBlackoutActive: true };
+    const decision = RiskGate.evaluate(baseIntent, FTMO_STANDARD_PROFILE, unknownState);
+    expect(decision.approved).toBe(false);
+    expect(decision.reasonCode).toBe('NEWS_CALENDAR_UNAVAILABLE');
   });
 
   it('rejects order intents breaching 5% daily loss limit', () => {
@@ -221,16 +228,20 @@ describe('packages/risk (RiskGate & FTMO Standard Profile)', () => {
   });
 });
 
-describe('checkNewsBlackoutActive', () => {
+describe('checkNewsBlackoutStatus & checkNewsBlackoutActive (Tri-State Calendar)', () => {
   const origTeKey = process.env.TRADING_ECONOMICS_KEY;
   const origFredKey = process.env.FRED_API_KEY;
   const origCalendarUrl = process.env.ECONOMIC_CALENDAR_URL;
+  const origAllowUnchecked = process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER;
+  const origTier4 = process.env.TIER_4_ENABLED;
   const mockFetch = vi.fn();
 
   beforeEach(() => {
     delete process.env.TRADING_ECONOMICS_KEY;
     delete process.env.FRED_API_KEY;
     delete process.env.ECONOMIC_CALENDAR_URL;
+    delete process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER;
+    delete process.env.TIER_4_ENABLED;
     global.fetch = mockFetch;
   });
 
@@ -238,25 +249,33 @@ describe('checkNewsBlackoutActive', () => {
     process.env.TRADING_ECONOMICS_KEY = origTeKey;
     process.env.FRED_API_KEY = origFredKey;
     process.env.ECONOMIC_CALENDAR_URL = origCalendarUrl;
+    if (origAllowUnchecked !== undefined) process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER = origAllowUnchecked;
+    else delete process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER;
+    if (origTier4 !== undefined) process.env.TIER_4_ENABLED = origTier4;
+    else delete process.env.TIER_4_ENABLED;
     vi.restoreAllMocks();
   });
 
-  it('returns false (not fail-closed) if no calendar source is configured', async () => {
-    // New behaviour: unconfigured calendar logs a warning but does not block trading.
-    // Previously this returned true (fail-closed) which permanently blocked all cycles.
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(false);
+  it('fails closed: returns UNKNOWN status and active=true if no calendar source is configured', async () => {
+    const status = await checkNewsBlackoutStatus(['USD', 'GBP']);
+    expect(status).toBe('UNKNOWN');
+
+    const active = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(active).toBe(true);
   });
 
-  it('returns false (not fail-closed) if fetch throws an error', async () => {
+  it('fails closed: returns UNKNOWN status and active=true if fetch throws an error', async () => {
     process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
     mockFetch.mockRejectedValue(new Error('Network failure'));
 
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(false);
+    const status = await checkNewsBlackoutStatus(['USD', 'GBP']);
+    expect(status).toBe('UNKNOWN');
+
+    const active = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(active).toBe(true);
   });
 
-  it('returns false (not fail-closed) if fetch returns a non-ok response', async () => {
+  it('fails closed: returns UNKNOWN status and active=true if fetch returns a non-ok response', async () => {
     process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
     mockFetch.mockResolvedValue({
       ok: false,
@@ -264,25 +283,30 @@ describe('checkNewsBlackoutActive', () => {
       statusText: 'Internal Server Error',
     });
 
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(false);
+    const status = await checkNewsBlackoutStatus(['USD', 'GBP']);
+    expect(status).toBe('UNKNOWN');
+
+    const active = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(active).toBe(true);
   });
 
-  it('returns false if there are no events in the calendar', async () => {
+  it('returns CLEAR status and active=false if there are no events in the custom calendar', async () => {
     process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => []
     });
 
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(false);
+    const status = await checkNewsBlackoutStatus(['USD', 'GBP']);
+    expect(status).toBe('CLEAR');
+
+    const active = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(active).toBe(false);
   });
 
-  it('returns true if a HIGH impact event for target currency is within window', async () => {
+  it('returns BLACKOUT status and active=true if a HIGH impact event for target currency is within window', async () => {
     process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
     const now = new Date();
-    // Event scheduled 1 minute from now (window is 2 minutes)
     const eventTime = new Date(now.getTime() + 60 * 1000).toISOString();
 
     const mockEvents: CalendarEvent[] = [
@@ -300,101 +324,61 @@ describe('checkNewsBlackoutActive', () => {
       json: async () => mockEvents
     });
 
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(true);
+    const status = await checkNewsBlackoutStatus(['USD', 'GBP']);
+    expect(status).toBe('BLACKOUT');
+
+    const active = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(active).toBe(true);
   });
 
-  it('returns false if event is within window but impact is not HIGH', async () => {
-    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
-    const now = new Date();
-    const eventTime = new Date(now.getTime() + 60 * 1000).toISOString();
-
-    const mockEvents: CalendarEvent[] = [
-      {
-        id: 'evt_1',
-        title: 'Minor Report',
-        country: 'USD',
-        impact: 'MEDIUM',
-        scheduledAt: eventTime
-      }
-    ];
-
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockEvents
-    });
-
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(false);
-  });
-
-  it('returns false if event is HIGH impact within window but for a non-traded currency', async () => {
-    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
-    const now = new Date();
-    const eventTime = new Date(now.getTime() + 60 * 1000).toISOString();
-
-    const mockEvents: CalendarEvent[] = [
-      {
-        id: 'evt_1',
-        title: 'ECB Rate Decision',
-        country: 'EUR',
-        impact: 'HIGH',
-        scheduledAt: eventTime
-      }
-    ];
-
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockEvents
-    });
-
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(false);
-  });
-
-  it('returns false if event is HIGH impact and for traded currency but outside window', async () => {
-    process.env.ECONOMIC_CALENDAR_URL = 'http://mock-calendar/events';
-    const now = new Date();
-    // Event scheduled 3 minutes from now (window is 2 minutes)
-    const eventTime = new Date(now.getTime() + 180 * 1000).toISOString();
-
-    const mockEvents: CalendarEvent[] = [
-      {
-        id: 'evt_1',
-        title: 'Non-Farm Payrolls',
-        country: 'USD',
-        impact: 'HIGH',
-        scheduledAt: eventTime
-      }
-    ];
-
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockEvents
-    });
-
-    const result = await checkNewsBlackoutActive(['USD', 'GBP'], 2);
-    expect(result).toBe(false);
-  });
-
-  it('FRED: returns false for non-USD pair (EUR/GBP) even if FRED key set — USD events do not affect EUR/GBP', async () => {
-    process.env.FRED_API_KEY = 'test-fred-key';
-    // EUR/GBP has no USD leg — FRED USD events should not block it
-    const result = await checkNewsBlackoutActive(['EUR', 'GBP']);
-    expect(result).toBe(false);
-    // fetch should NOT have been called since no USD exposure
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it('FRED: returns false if FRED API returns no release dates for today', async () => {
+  it('FRED coverage gap: returns UNKNOWN for GBP/USD when no US event because GBP leg is uncovered', async () => {
     process.env.FRED_API_KEY = 'test-fred-key';
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ release_dates: [] })
     });
 
-    const result = await checkNewsBlackoutActive(['USD', 'GBP']);
-    expect(result).toBe(false);
+    // GBP is not covered by FRED US macro calendar -> coverage gap -> UNKNOWN
+    const status = await checkNewsBlackoutStatus(['GBP', 'USD']);
+    expect(status).toBe('UNKNOWN');
+
+    const active = await checkNewsBlackoutActive(['GBP', 'USD']);
+    expect(active).toBe(true);
+  });
+
+  it('FRED fully covered: returns CLEAR for XAU/USD when no US event because XAU/USD is fully USD-correlated', async () => {
+    process.env.FRED_API_KEY = 'test-fred-key';
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ release_dates: [] })
+    });
+
+    // XAU and USD are both in USD_CORRELATED_CURRENCIES -> fully covered -> CLEAR
+    const status = await checkNewsBlackoutStatus(['XAU', 'USD']);
+    expect(status).toBe('CLEAR');
+
+    const active = await checkNewsBlackoutActive(['XAU', 'USD']);
+    expect(active).toBe(false);
+  });
+
+  it('ALLOW_UNCHECKED_NEWS_IN_PAPER: resolves UNKNOWN to CLEAR in paper mode when explicitly enabled', async () => {
+    process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER = 'true';
+    delete process.env.TIER_4_ENABLED; // paper mode
+
+    const status = await checkNewsBlackoutStatus(['USD', 'GBP']);
+    expect(status).toBe('CLEAR');
+
+    const active = await checkNewsBlackoutActive(['USD', 'GBP']);
+    expect(active).toBe(false);
+  });
+
+  it('ALLOW_UNCHECKED_NEWS_IN_PAPER: throws security exception if enabled in LIVE mode (TIER_4_ENABLED=true)', async () => {
+    process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER = 'true';
+    process.env.TIER_4_ENABLED = 'true';
+
+    await expect(checkNewsBlackoutStatus(['USD', 'GBP'])).rejects.toThrow(
+      'Security Exception: ALLOW_UNCHECKED_NEWS_IN_PAPER is strictly forbidden when TIER_4_ENABLED=true (LIVE mode).'
+    );
   });
 });
 

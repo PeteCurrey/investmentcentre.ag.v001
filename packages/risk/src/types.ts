@@ -56,6 +56,8 @@ export interface OpenPositionRisk {
   riskAmountInAccountCurrency: ScaledInteger;
 }
 
+export type NewsCalendarStatus = 'CLEAR' | 'BLACKOUT' | 'UNKNOWN';
+
 export interface AccountRiskState {
   accountId: string;
   accountCurrency?: string;
@@ -65,7 +67,10 @@ export interface AccountRiskState {
   openPositionCount: number;
   realizedPnlToday: ScaledInteger;
   unrealizedPnl: ScaledInteger;
+  /** Deprecated: use newsStatus instead. Derived as newsStatus !== 'CLEAR' (fail-closed). */
   isNewsBlackoutActive: boolean;
+  /** Tri-state calendar status: CLEAR (no event), BLACKOUT (active event), UNKNOWN (unverified/missing). */
+  newsStatus?: NewsCalendarStatus;
   /** Live conversion rates from Quote Currency -> Account Currency. e.g. { 'USD': 1.0, 'JPY': 0.00639 } */
   quoteToAccountRates?: Record<string, number>;
   openPositions?: OpenPositionRisk[];
@@ -86,6 +91,7 @@ export type RiskRejectionReason =
   | 'TOTAL_DRAWDOWN_EXCEEDED'
   | 'MAX_RISK_PER_TRADE_EXCEEDED'
   | 'NEWS_BLACKOUT_ACTIVE'
+  | 'NEWS_CALENDAR_UNAVAILABLE'
   | 'MAX_POSITIONS_EXCEEDED'
   | 'MISSING_STOP_LOSS'
   | 'INVALID_UNITS_MAGNITUDE'

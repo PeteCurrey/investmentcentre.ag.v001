@@ -48,12 +48,21 @@ export class RiskGate {
       };
     }
 
-    // Rule 3: News Blackout Window
-    if (state.isNewsBlackoutActive) {
+    // Rule 3: News Blackout / Calendar Verification
+    const effectiveNewsStatus = state.newsStatus ?? (state.isNewsBlackoutActive ? 'BLACKOUT' : 'CLEAR');
+    if (effectiveNewsStatus === 'BLACKOUT') {
       return {
         approved: false,
         orderIntentId: intent.id,
         reasonCode: 'NEWS_BLACKOUT_ACTIVE',
+        evaluatedAt: now
+      };
+    }
+    if (effectiveNewsStatus === 'UNKNOWN') {
+      return {
+        approved: false,
+        orderIntentId: intent.id,
+        reasonCode: 'NEWS_CALENDAR_UNAVAILABLE',
         evaluatedAt: now
       };
     }

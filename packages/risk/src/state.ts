@@ -44,7 +44,7 @@ export interface StateAdapter {
 }
 import { type ScaledInteger, getSupabaseServiceClient, createLogger } from '@meridian/core';
 import { type AccountRiskState, type OpenPositionRisk } from './types';
-import { checkNewsBlackoutActive } from './calendar';
+import { checkNewsBlackoutStatus } from './calendar';
 
 const log = createLogger('AccountRiskStateBuilder');
 
@@ -208,11 +208,12 @@ export async function buildAccountRiskState(
     );
   }
 
-  // 4. Check news blackout
+  // 4. Check news blackout status
   const symbol = options?.instrument || 'GBP/USD';
   const parts = symbol.split('/');
   const currencies = parts.length === 2 ? parts : ['USD', 'GBP'];
-  const isNewsBlackoutActive = await checkNewsBlackoutActive(currencies);
+  const newsStatus = await checkNewsBlackoutStatus(currencies);
+  const isNewsBlackoutActive = newsStatus !== 'CLEAR';
 
   // 5. Fetch open positions from broker adapter if supported
   //    Maps to OpenPositionRisk[] for aggregate/correlated risk rule evaluation.
@@ -251,6 +252,7 @@ export async function buildAccountRiskState(
     realizedPnlToday,
     unrealizedPnl: accountState.unrealizedPnl.price as ScaledInteger,
     isNewsBlackoutActive,
+    newsStatus,
     quoteToAccountRates: options?.quoteToAccountRates,
     openPositions: openPositions.length > 0 ? openPositions : undefined,
   };

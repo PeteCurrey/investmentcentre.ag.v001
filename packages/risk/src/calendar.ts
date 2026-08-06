@@ -5,27 +5,31 @@
  * Checks whether current time falls within `windowMinutes` either side of a
  * high-impact economic news event affecting the currencies being traded.
  *
+ * TRI-STATE STATUS RESOLUTION:
+ *   - 'CLEAR'    : Source checked successfully; no high-impact event in window.
+ *   - 'BLACKOUT' : Source checked successfully; high-impact event IS in window.
+ *   - 'UNKNOWN'  : Unconfigured, fetch error, or coverage gap (e.g. FRED with non-USD leg).
+ *
+ * FAIL-CLOSED PRINCIPLE:
+ *   Absence of data is NEVER permission to proceed. Both 'BLACKOUT' and 'UNKNOWN'
+ *   cause RiskGate to reject trading, with distinct reason codes:
+ *     - 'BLACKOUT' $\rightarrow$ 'NEWS_BLACKOUT_ACTIVE'
+ *     - 'UNKNOWN'  $\rightarrow$ 'NEWS_CALENDAR_UNAVAILABLE'
+ *
  * SOURCE PRIORITY (first configured source wins):
  *   1. Trading Economics  — TRADING_ECONOMICS_KEY — full global coverage
- *   2. FRED release dates — FRED_API_KEY          — US events only (see WARNING below)
+ *   2. FRED release dates — FRED_API_KEY          — US events only (non-USD legs $\rightarrow$ UNKNOWN)
  *   3. Custom URL         — ECONOMIC_CALENDAR_URL  — arbitrary JSON feed
- *   4. No source          — warning logged; blackout check DISABLED (returns false)
+ *   4. No source          — status UNKNOWN (fail-closed)
  *
- * ⚠️  WARNING — FRED covers US events only (CPI, FOMC, NFP, PPI, Retail Sales, PCE,
- * GDP, JOLTS, ISM Manufacturing, Core PCE). BoE and ECB events are NOT covered.
- * For GBP and EUR instruments, TRADING_ECONOMICS_KEY is required before LIVE mode.
- *
- * FAIL BEHAVIOUR:
- *   - If a configured source returns an HTTP error or throws, we log a warning and
- *     return false (allow trading). We do NOT fail-closed silently on every cycle.
- *   - If no source is configured, we log a warning and return false.
- *
- * The old behaviour (fail-closed when unconfigured) permanently blocked all trading
- * since Finnhub's /calendar/economic returns 403 on the current plan and no fallback
- * was available. The new behaviour is: caller is warned, trading is NOT blocked.
+ * PAPER TESTING EXCEPTION:
+ *   If ALLOW_UNCHECKED_NEWS_IN_PAPER === 'true' AND TIER_4_ENABLED !== 'true',
+ *   'UNKNOWN' is resolved to 'CLEAR' with a log warning. It is hard-blocked from
+ *   running when TIER_4_ENABLED === 'true' (LIVE mode).
  */
 
 import { createLogger } from '@meridian/core';
+import type { NewsCalendarStatus } from './types';
 
 const log = createLogger('calendar');
 
@@ -38,8 +42,7 @@ export interface CalendarEvent {
 }
 
 /** High-impact FRED release IDs that warrant a news blackout window.
- *  These are US macro releases. Covers USD-correlated pairs.
- *  Ref: https://fred.stlouisfed.org/releases
+ *  These are US macro releases. Ref: https://fred.stlouisfed.org/releases
  */
 const FRED_HIGH_IMPACT_RELEASE_IDS: number[] = [
   10,  // Employment Situation (NFP)
@@ -63,19 +66,12 @@ const USD_CORRELATED_CURRENCIES = new Set(['USD', 'XAU', 'XAG']);
 /**
  * Fetch FRED release dates for today and check whether any high-impact release
  * falls within `windowMinutes` of now.
- *
- * @param targetCurrencies - currencies involved in the instrument being traded
- * @param windowMinutes    - blackout window in minutes either side of release
- * @returns true if a high-impact release is within the window; false otherwise
  */
-async function checkFredBlackout(targetCurrencies: string[], windowMinutes: number): Promise<boolean> {
+async function checkFredBlackoutStatus(
+  targetCurrencies: string[],
+  windowMinutes: number
+): Promise<NewsCalendarStatus> {
   const fredApiKey = process.env.FRED_API_KEY!;
-
-  // FRED only covers USD macro events. Only check if the instrument has USD exposure.
-  const hasUsdExposure = targetCurrencies.some(c => USD_CORRELATED_CURRENCIES.has(c.toUpperCase()));
-  if (!hasUsdExposure) {
-    return false;
-  }
 
   const today = new Date().toISOString().slice(0, 10);
   const nowMs = Date.now();
@@ -86,52 +82,64 @@ async function checkFredBlackout(targetCurrencies: string[], windowMinutes: numb
       const url = `https://api.stlouisfed.org/fred/release/dates?release_id=${releaseId}&api_key=${fredApiKey}&file_type=json&realtime_start=${today}&realtime_end=${today}&include_release_dates_with_no_data=false&sort_order=desc&limit=5`;
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) {
-        // FRED API error for a single release — skip it, don't abort entire check
-        log.warn('FRED release date fetch failed', { releaseId, status: res.status });
-        continue;
+        log.warn('FRED release date fetch non-ok response', { releaseId, status: res.status });
+        return 'UNKNOWN';
       }
-      const data = await res.json() as { release_dates?: Array<{ date: string }> };
+      const data = (await res.json()) as { release_dates?: Array<{ date: string }> };
       const releaseDates = data.release_dates ?? [];
       for (const rd of releaseDates) {
-        // FRED release dates are date-only (YYYY-MM-DD); treat as market open (13:30 UTC ~ NYSE open)
-        // We check relative to today's date rather than exact time since FRED doesn't publish intraday times
         if (rd.date === today) {
-          // Release is today — check if we're within the window
-          // Use 13:30 UTC as the proxy release time (US market open / typical macro release time)
           const releaseMs = new Date(`${today}T13:30:00Z`).getTime();
           if (Math.abs(nowMs - releaseMs) <= windowMs) {
             log.info('FRED news blackout active', { releaseId, date: rd.date });
-            return true;
+            return 'BLACKOUT';
           }
         }
       }
     } catch (e: any) {
       log.warn('FRED release date check threw', { releaseId, error: e.message });
+      return 'UNKNOWN';
     }
   }
 
-  return false;
+  // FRED found NO active US release in window.
+  // Evaluate currency coverage gap: FRED covers US macro events ONLY.
+  // If the instrument includes non-USD legs (e.g. GBP in GBP/USD, EUR in EUR/GBP),
+  // FRED has no coverage for those legs $\rightarrow$ return UNKNOWN.
+  const uncoveredCurrencies = targetCurrencies.filter(
+    (c) => !USD_CORRELATED_CURRENCIES.has(c.toUpperCase())
+  );
+
+  if (uncoveredCurrencies.length > 0) {
+    log.warn(
+      'FRED calendar source active but has NO coverage for non-USD currencies: ' +
+        `${uncoveredCurrencies.join(', ')}. Calendar status is UNKNOWN for this instrument.`,
+      { uncoveredCurrencies }
+    );
+    return 'UNKNOWN';
+  }
+
+  // All legs are USD-correlated (e.g. XAU/USD) and no US event is active $\rightarrow$ CLEAR
+  return 'CLEAR';
 }
 
 /**
- * Checks whether now falls within `windowMinutes` before or after a high-impact
- * event affecting any of the specified `currencies`.
- *
- * Source cascade (first configured wins):
- *   1. TRADING_ECONOMICS_KEY → full global coverage
- *   2. FRED_API_KEY          → US events only (USD-correlated pairs)
- *   3. ECONOMIC_CALENDAR_URL → custom JSON feed
- *   4. None                  → warn + return false (blackout NOT active)
- *
- * See module docstring for LIVE-mode requirements.
+ * Checks economic calendar and returns tri-state status:
+ *   - 'CLEAR': checked successfully; no high-impact event in window
+ *   - 'BLACKOUT': checked successfully; high-impact event in window
+ *   - 'UNKNOWN': unconfigured, fetch error, or coverage gap (e.g. FRED with non-USD leg)
  */
-export async function checkNewsBlackoutActive(
+export async function checkNewsBlackoutStatus(
   currencies: string[],
   windowMinutes = 2
-): Promise<boolean> {
+): Promise<NewsCalendarStatus> {
   const teKey = process.env.TRADING_ECONOMICS_KEY;
   const fredApiKey = process.env.FRED_API_KEY;
   const calendarUrl = process.env.ECONOMIC_CALENDAR_URL;
+
+  const allowUncheckedInPaper = process.env.ALLOW_UNCHECKED_NEWS_IN_PAPER === 'true';
+
+  let status: NewsCalendarStatus = 'UNKNOWN';
 
   try {
     const nowMs = Date.now();
@@ -144,82 +152,98 @@ export async function checkNewsBlackoutActive(
         { headers: { Accept: 'application/json' } }
       );
       if (!res.ok) {
-        log.warn('Trading Economics calendar fetch failed — skipping blackout check', { status: res.status });
-        return false;
-      }
-      const data = (await res.json()) as Array<{
-        CalendarId?: string;
-        Event?: string;
-        Country?: string;
-        Date?: string;
-      }>;
-      const events: CalendarEvent[] = (data || []).map((e) => ({
-        id: String(e.CalendarId || Math.random()),
-        title: e.Event || 'High Impact Event',
-        country: e.Country || '',
-        impact: 'HIGH',
-        scheduledAt: e.Date || new Date().toISOString(),
-      }));
+        log.warn('Trading Economics calendar fetch failed — status UNKNOWN', { status: res.status });
+        status = 'UNKNOWN';
+      } else {
+        const data = (await res.json()) as Array<{
+          CalendarId?: string;
+          Event?: string;
+          Country?: string;
+          Date?: string;
+        }>;
+        const events: CalendarEvent[] = (data || []).map((e) => ({
+          id: String(e.CalendarId || Math.random()),
+          title: e.Event || 'High Impact Event',
+          country: e.Country || '',
+          impact: 'HIGH',
+          scheduledAt: e.Date || new Date().toISOString(),
+        }));
 
-      const targetSet = new Set(currencies.map((c) => c.toUpperCase()));
-      for (const evt of events) {
-        if (evt.impact !== 'HIGH') continue;
-        if (!targetSet.has(evt.country.toUpperCase())) continue;
-        const evtMs = new Date(evt.scheduledAt).getTime();
-        if (Math.abs(nowMs - evtMs) <= windowMs) {
-          log.info('TE news blackout active', { event: evt.title, country: evt.country });
-          return true;
+        const targetSet = new Set(currencies.map((c) => c.toUpperCase()));
+        let foundBlackout = false;
+        for (const evt of events) {
+          if (evt.impact !== 'HIGH') continue;
+          if (!targetSet.has(evt.country.toUpperCase())) continue;
+          const evtMs = new Date(evt.scheduledAt).getTime();
+          if (Math.abs(nowMs - evtMs) <= windowMs) {
+            log.info('TE news blackout active', { event: evt.title, country: evt.country });
+            foundBlackout = true;
+            break;
+          }
         }
+        status = foundBlackout ? 'BLACKOUT' : 'CLEAR';
       }
-      return false;
     }
-
     // ── Source 2: FRED (US-only) ───────────────────────────────────────────────
-    if (fredApiKey) {
-      const nonUsdCurrencies = currencies.filter(c => !USD_CORRELATED_CURRENCIES.has(c.toUpperCase()));
-      if (nonUsdCurrencies.length > 0) {
-        log.warn(
-          'FRED calendar source is active but covers US events ONLY. ' +
-          `Non-USD currencies ${nonUsdCurrencies.join(', ')} have NO coverage. ` +
-          'Add TRADING_ECONOMICS_KEY for full coverage before LIVE mode.',
-          { currencies: nonUsdCurrencies }
-        );
-      }
-      return checkFredBlackout(currencies, windowMinutes);
+    else if (fredApiKey) {
+      status = await checkFredBlackoutStatus(currencies, windowMinutes);
     }
-
     // ── Source 3: Custom URL ───────────────────────────────────────────────────
-    if (calendarUrl) {
+    else if (calendarUrl) {
       const res = await fetch(calendarUrl);
       if (!res.ok) {
-        log.warn('Custom calendar URL fetch failed — skipping blackout check', { url: calendarUrl, status: res.status });
-        return false;
-      }
-      const events = (await res.json()) as CalendarEvent[];
-      const targetSet = new Set(currencies.map((c) => c.toUpperCase()));
-      for (const evt of events) {
-        if (evt.impact !== 'HIGH') continue;
-        if (!targetSet.has(evt.country.toUpperCase())) continue;
-        const evtMs = new Date(evt.scheduledAt).getTime();
-        if (Math.abs(nowMs - evtMs) <= windowMs) {
-          return true;
+        log.warn('Custom calendar URL fetch failed — status UNKNOWN', { url: calendarUrl, status: res.status });
+        status = 'UNKNOWN';
+      } else {
+        const events = (await res.json()) as CalendarEvent[];
+        const targetSet = new Set(currencies.map((c) => c.toUpperCase()));
+        let foundBlackout = false;
+        for (const evt of events) {
+          if (evt.impact !== 'HIGH') continue;
+          if (!targetSet.has(evt.country.toUpperCase())) continue;
+          const evtMs = new Date(evt.scheduledAt).getTime();
+          if (Math.abs(nowMs - evtMs) <= windowMs) {
+            foundBlackout = true;
+            break;
+          }
         }
+        status = foundBlackout ? 'BLACKOUT' : 'CLEAR';
       }
-      return false;
     }
-
     // ── Source 4: No source configured ────────────────────────────────────────
-    log.warn(
-      'No economic calendar source configured (TRADING_ECONOMICS_KEY, FRED_API_KEY, or ' +
-      'ECONOMIC_CALENDAR_URL). News blackout check is DISABLED. ' +
-      'Add FRED_API_KEY for US event coverage, or TRADING_ECONOMICS_KEY for full global ' +
-      'coverage, before transitioning to LIVE mode.'
-    );
-    return false;
-
+    else {
+      log.warn(
+        'No economic calendar source configured (TRADING_ECONOMICS_KEY, FRED_API_KEY, or ' +
+          'ECONOMIC_CALENDAR_URL). Calendar status is UNKNOWN.'
+      );
+      status = 'UNKNOWN';
+    }
   } catch (e: any) {
-    // On unexpected error, log and allow trading (do not silently block every cycle)
-    log.warn('checkNewsBlackoutActive threw unexpectedly — returning false', { error: e.message });
-    return false;
+    log.warn('checkNewsBlackoutStatus threw unexpectedly — status UNKNOWN', { error: e.message });
+    status = 'UNKNOWN';
   }
+
+  // Handle ALLOW_UNCHECKED_NEWS_IN_PAPER flag
+  if (status === 'UNKNOWN' && allowUncheckedInPaper) {
+    if (process.env.TIER_4_ENABLED === 'true') {
+      throw new Error(
+        'Security Exception: ALLOW_UNCHECKED_NEWS_IN_PAPER is strictly forbidden when TIER_4_ENABLED=true (LIVE mode).'
+      );
+    }
+    log.warn('ALLOW_UNCHECKED_NEWS_IN_PAPER active in paper mode — resolving UNKNOWN status to CLEAR');
+    return 'CLEAR';
+  }
+
+  return status;
+}
+
+/**
+ * Legacy boolean helper. Returns true if status !== 'CLEAR' (fail-closed).
+ */
+export async function checkNewsBlackoutActive(
+  currencies: string[],
+  windowMinutes = 2
+): Promise<boolean> {
+  const status = await checkNewsBlackoutStatus(currencies, windowMinutes);
+  return status !== 'CLEAR';
 }
