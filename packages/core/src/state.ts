@@ -168,14 +168,17 @@ export interface AutotraderConfigPatch {
   updatedBy?: string;
 }
 
+export type WriteConfigResult =
+  | { ok: true; config: AutotraderConfig }
+  | { ok: false; error: string };
+
 /**
- * Upserts the singleton autotrader config row.
+ * Upserts the singleton autotrader config row and returns detailed status/error.
  * Reads current state first so partial patches compose correctly.
- * Returns the updated config, or null on failure.
  */
-export async function writeAutotraderConfig(
+export async function writeAutotraderConfigResult(
   patch: AutotraderConfigPatch
-): Promise<AutotraderConfig | null> {
+): Promise<WriteConfigResult> {
   try {
     const current = await readAutotraderConfig();
 
@@ -220,27 +223,40 @@ export async function writeAutotraderConfig(
       .single();
 
     if (error || !data) {
-      log.error('writeAutotraderConfig: upsert failed', { error: error?.message });
-      return null;
+      const errMsg = error?.message || 'Database returned empty row';
+      log.error('writeAutotraderConfig: upsert failed', { error: errMsg });
+      return { ok: false, error: errMsg };
     }
 
-    return rowToConfig(data as AutotraderStateRow);
+    return { ok: true, config: rowToConfig(data as AutotraderStateRow) };
   } catch (err: unknown) {
-    log.error('writeAutotraderConfig: unexpected error', { err });
-    return null;
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.error('writeAutotraderConfig: unexpected error', { err: errMsg });
+    return { ok: false, error: errMsg };
   }
+}
+
+/**
+ * Upserts the singleton autotrader config row.
+ * Returns the updated config, or null on failure.
+ */
+export async function writeAutotraderConfig(
+  patch: AutotraderConfigPatch
+): Promise<AutotraderConfig | null> {
+  const res = await writeAutotraderConfigResult(patch);
+  return res.ok ? res.config : null;
 }
 
 /**
  * Dedicated write for the algo trading kill switch.
  * Does not touch mode or any other field.
+ * Returns WriteConfigResult with exact database error message on failure.
  */
 export async function writeAutotraderEnabled(
   enabled: boolean,
   actor: string
-): Promise<boolean> {
-  const result = await writeAutotraderConfig({ enabled, updatedBy: actor });
-  return result !== null;
+): Promise<WriteConfigResult> {
+  return writeAutotraderConfigResult({ enabled, updatedBy: actor });
 }
 
 // ─── risk_profile_changes ──────────────────────────────────────────────────────

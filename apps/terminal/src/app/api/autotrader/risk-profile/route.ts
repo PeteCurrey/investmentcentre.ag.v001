@@ -11,6 +11,7 @@ import { requireSession } from '../../../../lib/auth';
 import {
   readAutotraderConfig,
   writeAutotraderConfig,
+  writeAutotraderConfigResult,
   insertRiskProfileChange,
   RiskProfileOverrides,
 } from '@meridian/core';
@@ -146,14 +147,14 @@ export async function POST(request: Request) {
     [targetField]: value,
   };
 
-  const updatedConfig = await writeAutotraderConfig({
+  const writeRes = await writeAutotraderConfigResult({
     riskProfileOverrides: newOverrides,
     updatedBy: actor,
   });
 
-  if (!updatedConfig) {
+  if (!writeRes.ok) {
     return NextResponse.json(
-      { success: false, error: 'CONFIG_WRITE_FAILURE: Failed to persist updated risk profile overrides.' },
+      { success: false, error: `CONFIG_WRITE_FAILURE: ${writeRes.error}` },
       { status: 500 }
     );
   }

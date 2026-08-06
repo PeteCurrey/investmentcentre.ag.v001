@@ -38,11 +38,11 @@ export async function POST(request: Request) {
   }
 
   const actor = sessionPayload.sub || 'user';
-  const ok = await writeAutotraderEnabled(body.enabled, actor);
+  const toggleResult = await writeAutotraderEnabled(body.enabled, actor);
 
-  if (!ok) {
+  if (!toggleResult.ok) {
     return NextResponse.json(
-      { success: false, error: 'TOGGLE_FAILED: Failed to update autotrader enabled state.' },
+      { success: false, error: `TOGGLE_FAILED: ${toggleResult.error}` },
       { status: 500 }
     );
   }

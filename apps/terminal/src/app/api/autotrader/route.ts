@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   readAutotraderConfig,
   writeAutotraderConfig,
+  writeAutotraderConfigResult,
   AutotraderConfig,
   RiskProfileConfig,
   requestTransition,
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const updated = await writeAutotraderConfig({
+  const writeRes = await writeAutotraderConfigResult({
     ...(body.selectedInstruments !== undefined && {
       selectedInstruments: body.selectedInstruments,
     }),
@@ -194,12 +195,12 @@ export async function POST(request: Request) {
     updatedBy: sessionPayload.sub || 'user',
   });
 
-  if (!updated) {
+  if (!writeRes.ok) {
     return NextResponse.json(
-      { success: false, error: 'CONFIG_WRITE_FAILURE: Failed to persist config.' },
-      { status: 503 }
+      { success: false, error: `CONFIG_WRITE_FAILURE: ${writeRes.error}` },
+      { status: 500 }
     );
   }
 
-  return NextResponse.json({ success: true, ...updated });
+  return NextResponse.json({ success: true, ...writeRes.config });
 }
