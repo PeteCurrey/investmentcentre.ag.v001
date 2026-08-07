@@ -52,7 +52,12 @@ export const INSTRUMENT_PIPS: InstrumentPipInfo[] = [
   { symbol: 'EU50',   oandaId: 'EU50_EUR',   pipValue: 1.0 },
 
   // ── Commodities ────────────────────────────────────────────────────────────
+  // ── Commodities ────────────────────────────────────────────────────────────
   { symbol: 'XAU/USD', oandaId: 'XAU_USD', pipValue: 1.0 },
+  { symbol: 'XAU/GBP', oandaId: 'XAU_GBP', pipValue: 1.0 },
+  { symbol: 'XAU/EUR', oandaId: 'XAU_EUR', pipValue: 1.0 },
+  { symbol: 'XAU/CAD', oandaId: 'XAU_CAD', pipValue: 1.0 },
+  { symbol: 'XAU/AUD', oandaId: 'XAU_AUD', pipValue: 1.0 },
   { symbol: 'XAG/USD', oandaId: 'XAG_USD', pipValue: 0.01 },
   { symbol: 'WTI Oil', oandaId: 'WTICO_USD', pipValue: 0.01 },
   { symbol: 'Brent',   oandaId: 'BCO_USD',   pipValue: 0.01 },
@@ -106,6 +111,8 @@ export function getPipValue(symbolOrOandaId: string): number {
   );
   if (match) return match.pipValue;
 
+  // Generic fallback for gold instruments
+  if (s.toUpperCase().includes('XAU')) return 1.0;
   // Generic fallback only for unlisted assets (e.g. unknown custom JPY pair)
   if (s.toUpperCase().includes('JPY')) return 0.01;
   return 0.0001;
