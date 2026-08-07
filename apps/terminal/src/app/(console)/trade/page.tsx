@@ -588,7 +588,8 @@ function TradePageInner() {
         ? current.filter((s: string) => s !== symbolToToggle)
         : [...current, symbolToToggle];
 
-      if (updated.length > 10) {
+      const isAdding = !current.includes(symbolToToggle);
+      if (isAdding && updated.length > 10) {
         alert('Maximum 10 instruments for autotrader evaluation. Remove one before adding another.');
         return;
       }
