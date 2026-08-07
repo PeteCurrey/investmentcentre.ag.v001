@@ -111,11 +111,12 @@ export async function POST(request: Request) {
 
   // Handle config-only update (no mode change).
   if (body.selectedInstruments !== undefined) {
-    // Only block when ADDING instruments above the cap — always allow reductions
-    const currentConfig = await readAutotraderConfig();
-    const currentCount = currentConfig?.selectedInstruments?.length ?? 0;
-    const isIncreasing = body.selectedInstruments.length > currentCount;
-    if (isIncreasing && body.selectedInstruments.length > MAX_SELECTED_INSTRUMENTS) {
+    // Hard backstop only — the UI enforces the real cap when adding.
+    // Never block removals: the server cannot reliably distinguish stale UI state
+    // from a genuine addition, so we apply a generous ceiling (2× UI cap) here
+    // and let the frontend guard the actual 10-instrument add limit.
+    const HARD_CEILING = MAX_SELECTED_INSTRUMENTS * 2;
+    if (body.selectedInstruments.length > HARD_CEILING) {
       return NextResponse.json(
         {
           success: false,
