@@ -126,22 +126,30 @@ async function checkFredBlackoutStatus(
 
   // FRED found NO active US release in window.
   // Evaluate currency coverage gap: FRED covers US macro events ONLY.
-  // If the instrument includes non-USD legs (e.g. GBP in GBP/USD, EUR in EUR/GBP),
-  // FRED has no coverage for those legs -> return UNKNOWN.
-  const uncoveredCurrencies = targetCurrencies.filter(
-    (c) => !USD_CORRELATED_CURRENCIES.has(c.toUpperCase())
-  );
+  // Exception: Precious-metal pairs (XAU/*, XAG/*) are dominated by USD macro events
+  // (Fed, NFP, CPI) regardless of their quote currency. If either leg is a precious
+  // metal, the pair is considered covered by FRED — we accept that local GBP/EUR/etc.
+  // events are not separately monitored until a global calendar source (Trading Economics)
+  // is configured.
+  const PRECIOUS_METALS = new Set(['XAU', 'XAG']);
+  const hasPreciousMetalLeg = targetCurrencies.some((c) => PRECIOUS_METALS.has(c.toUpperCase()));
 
-  if (uncoveredCurrencies.length > 0) {
-    log.warn(
-      'FRED calendar source active but has NO coverage for non-USD currencies: ' +
-        `${uncoveredCurrencies.join(', ')}. Calendar status is UNKNOWN for this instrument.`,
-      { uncoveredCurrencies }
+  if (!hasPreciousMetalLeg) {
+    const uncoveredCurrencies = targetCurrencies.filter(
+      (c) => !USD_CORRELATED_CURRENCIES.has(c.toUpperCase())
     );
-    return 'UNKNOWN';
+
+    if (uncoveredCurrencies.length > 0) {
+      log.warn(
+        'FRED calendar source active but has NO coverage for non-USD currencies: ' +
+          `${uncoveredCurrencies.join(', ')}. Calendar status is UNKNOWN for this instrument.`,
+        { uncoveredCurrencies }
+      );
+      return 'UNKNOWN';
+    }
   }
 
-  // All legs are USD-correlated (e.g. XAU/USD, SPX500) and no US event is active -> CLEAR
+  // All legs are either USD-correlated or precious-metal — and no US event is active -> CLEAR
   return 'CLEAR';
 }
 

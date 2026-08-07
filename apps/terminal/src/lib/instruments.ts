@@ -71,7 +71,11 @@ export const INSTRUMENT_UNIVERSE: Instrument[] = [
   { symbol: 'EU50',   oandaId: 'EU50_EUR',   tvSymbol: 'OANDA:EU50EUR',   assetClass: 'INDEX', description: 'Euro Stoxx 50', digits: 1, pipValue: 1.0, oandaTradeable: true },
 
   // ── Commodities ────────────────────────────────────────────────────────────
-  { symbol: 'XAU/USD', oandaId: 'XAU_USD', tvSymbol: 'OANDA:XAUUSD',  assetClass: 'COMMODITY', description: 'Gold Spot', digits: 2, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'XAU/USD', oandaId: 'XAU_USD', tvSymbol: 'OANDA:XAUUSD',  assetClass: 'COMMODITY', description: 'Gold Spot (USD)', digits: 2, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'XAU/GBP', oandaId: 'XAU_GBP', tvSymbol: 'OANDA:XAUGBP',  assetClass: 'COMMODITY', description: 'Gold Spot (GBP)', digits: 2, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'XAU/EUR', oandaId: 'XAU_EUR', tvSymbol: 'OANDA:XAUEUR',  assetClass: 'COMMODITY', description: 'Gold Spot (EUR)', digits: 2, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'XAU/CAD', oandaId: 'XAU_CAD', tvSymbol: 'OANDA:XAUCAD',  assetClass: 'COMMODITY', description: 'Gold Spot (CAD)', digits: 2, pipValue: 1.0, oandaTradeable: true },
+  { symbol: 'XAU/AUD', oandaId: 'XAU_AUD', tvSymbol: 'OANDA:XAUAUD',  assetClass: 'COMMODITY', description: 'Gold Spot (AUD)', digits: 2, pipValue: 1.0, oandaTradeable: true },
   { symbol: 'XAG/USD', oandaId: 'XAG_USD', tvSymbol: 'OANDA:XAGUSD',  assetClass: 'COMMODITY', description: 'Silver Spot', digits: 3, pipValue: 0.01, oandaTradeable: true },
   { symbol: 'WTI Oil', oandaId: 'WTICO_USD', tvSymbol: 'TVC:USOIL',   assetClass: 'COMMODITY', description: 'WTI Crude Oil', digits: 2, pipValue: 0.01, oandaTradeable: true },
   { symbol: 'Brent',   oandaId: 'BCO_USD',   tvSymbol: 'TVC:UKOIL',   assetClass: 'COMMODITY', description: 'Brent Crude Oil', digits: 2, pipValue: 0.01, oandaTradeable: true },
