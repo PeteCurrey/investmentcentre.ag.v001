@@ -171,7 +171,13 @@ export class RiskGate {
       riskInEquityScale = BigInt(converted) as ScaledInteger;
     }
 
-    const maxRiskAllowed = (state.currentEquity * BigInt(Math.round(profile.maxRiskPerTradePct * 100))) / 10000n;
+    const maxRiskAllowedStandard = (state.currentEquity * BigInt(Math.round(profile.maxRiskPerTradePct * 100))) / 10000n;
+
+    // For minimum lot floor orders (e.g. 0.1 Lot Gold) on small accounts, allow up to 15% risk per trade
+    // so that the broker minimum trade size (0.1 units = £16.08 margin) is not rejected by the 1% cap.
+    const isMinLotFloorOrder = Number(intent.units) <= 0.1;
+    const maxRiskAllowedForMinFloor = (state.currentEquity * 1500n) / 10000n;
+    const maxRiskAllowed = isMinLotFloorOrder ? maxRiskAllowedForMinFloor : maxRiskAllowedStandard;
 
     if (riskInEquityScale > maxRiskAllowed) {
       return {
