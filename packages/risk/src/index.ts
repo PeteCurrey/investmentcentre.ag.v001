@@ -39,7 +39,7 @@ export class RiskGate {
     }
 
     // Rule 2: Units must be a positive non-zero magnitude
-    if (!intent.units || intent.units <= 0n) {
+    if (!intent.units || Number(intent.units) <= 0) {
       return {
         approved: false,
         orderIntentId: intent.id,

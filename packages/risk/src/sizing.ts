@@ -37,9 +37,11 @@ const DEFAULT_MAX_UNITS = 10_000_000n; // 100 standard lots for Forex pairs
 
 export function getUnitsPerLot(instrumentSymbol: string): number {
   const s = (instrumentSymbol || '').toUpperCase();
-  if (s.includes('XAU')) return 100;
-  if (s.includes('XAG')) return 5000;
-  if (s.includes('XPT') || s.includes('XPD')) return 100;
+  // On OANDA v20 REST API, 1 unit of XAU = 1 oz Gold (1 Lot on OANDA UI).
+  // 0.1 units = 0.1 oz Gold (0.10 Lot on OANDA UI, requiring ~£16.08 margin).
+  if (s.includes('XAU')) return 1;
+  if (s.includes('XAG')) return 1;
+  if (s.includes('XPT') || s.includes('XPD')) return 1;
   if (
     s.includes('SPX') ||
     s.includes('NAS') ||
@@ -53,8 +55,7 @@ export function getUnitsPerLot(instrumentSymbol: string): number {
   ) {
     return 1;
   }
-  if (s.includes('BTC') || s.includes('ETH') || s.includes('SOL') || s.includes('LTC')) return 1;
-  return 100000;
+  return 100_000; // Standard FX Lot = 100,000 units (0.1 Lot = 10,000 units, 0.01 Lot = 1,000 units)
 }
 
 export function calculatePositionSize(
@@ -133,23 +134,23 @@ export function calculatePositionSize(
   }
 
   // Configured Lot Size: Enforces the configured lot size as the MINIMUM FLOOR per trade
-  // (e.g. 0.10 Lot = 10 units for Gold). Trades can be larger if 1% risk budget permits,
+  // (e.g. 0.10 Lot = 0.1 units for Gold on OANDA v20 REST API). Trades can be larger if 1% risk budget permits,
   // but will never fall below the configured minimum lot size.
   if (maxLotUnitsOverride !== undefined && maxLotUnitsOverride > 0) {
-    let minFloorUnits: bigint;
+    let minFloorUnits: number | bigint;
     if (maxLotUnitsOverride <= 20) {
       // Input is expressed as Lot Size (e.g. 0.01, 0.1, 0.5, 1.0, 2.0, 5.0)
       const multiplier = getUnitsPerLot(intent.instrument);
-      const unitsNum = Math.max(1, Math.floor(maxLotUnitsOverride * multiplier));
-      minFloorUnits = BigInt(unitsNum);
+      const unitsVal = maxLotUnitsOverride * multiplier;
+      minFloorUnits = unitsVal < 1 && unitsVal > 0 ? unitsVal : BigInt(Math.max(1, Math.floor(unitsVal)));
     } else {
-      // Input is expressed as raw unit count (e.g. 10 for 0.1 lot gold, 1000 for 0.01 lot FX)
+      // Input is expressed as raw unit count
       minFloorUnits = BigInt(Math.floor(maxLotUnitsOverride));
     }
 
     // Ensure calculated units meets or exceeds the configured minimum lot size floor
-    if (calculatedUnits < minFloorUnits) {
-      calculatedUnits = minFloorUnits as ScaledInteger;
+    if (Number(calculatedUnits) < Number(minFloorUnits)) {
+      (calculatedUnits as any) = minFloorUnits;
     }
   }
 

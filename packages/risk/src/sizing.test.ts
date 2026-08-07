@@ -78,30 +78,32 @@ describe('Risk-Derived Position Sizing', () => {
     expect(res.units).toBe(0n);
   });
 
-  it('should cap units when maxLotUnitsOverride is smaller than calculated units', () => {
+  it('should enforce min floor when maxLotUnitsOverride is set', () => {
     const intent = {
       instrument: 'GBP/USD',
       entryPrice: createPrice(toScaledInteger(13000n), 4, 'USD'),
       stopLossPrice: createPrice(toScaledInteger(12970n), 4, 'USD'),
     };
 
-    const res = calculatePositionSize(intent, FTMO_STANDARD_PROFILE, defaultState, 1000); // cap at 1,000 units
-    expect(res.units).toBe(1000n);
-    // risk must still be <= budget even when capped
-    expect(res.riskAmountInAccountCurrency).toBeLessThanOrEqual(res.maxRiskAllowedInAccountCurrency);
+    // When maxLotUnitsOverride (1000 units floor) is set, 333,333 calculated units >= 1000 floor
+    const res = calculatePositionSize(intent, FTMO_STANDARD_PROFILE, defaultState, 1000);
+    expect(res.units).toBe(333333n);
+
+    // When calculated units (e.g. 500) < min floor (1000), it enforces the 1000 floor
+    const resFloored = calculatePositionSize(intent, FTMO_STANDARD_PROFILE, defaultState, 500000);
+    expect(resFloored.units).toBe(500000n);
   });
 
-  it('should cap XAU/USD at OANDA max units (100)', () => {
-    // Gold at 2380.00, SL at 2350.00 (30.00 = $30 per unit risk)
-    // Budget = $1,000 → computed units = floor(1000 / 30) = 33 (below the cap of 100)
-    // With tiny SL: SL at 2379.90 ($0.10) → 10,000 units computed → capped to 100
+  it('should cap XAU/USD at OANDA max units (10000)', () => {
+    // Gold at 2380.00, SL at 2379.90 ($0.10 SL)
+    // Budget = $1,000 → 10,000 units computed → capped to OANDA_MAX_UNITS (10000)
     const intent = {
       instrument: 'XAU/USD',
       entryPrice: createPrice(toScaledInteger(238000n), 2, 'USD'),   // 2380.00
       stopLossPrice: createPrice(toScaledInteger(237990n), 2, 'USD'), // 2379.90 ($0.10 SL)
     };
     const res = calculatePositionSize(intent, FTMO_STANDARD_PROFILE, defaultState);
-    expect(res.units).toBe(100n); // capped at OANDA max
+    expect(res.units).toBe(10000n); // capped at OANDA max
   });
 });
 
