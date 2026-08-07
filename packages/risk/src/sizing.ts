@@ -26,8 +26,8 @@ export const CORRELATION_GROUPS: Record<string, string[]> = {
 };
 
 export const OANDA_MAX_UNITS: Record<string, bigint> = {
-  'XAU/USD': 100n,
-  'XAU_USD': 100n,
+  'XAU/USD': 10_000n,
+  'XAU_USD': 10_000n,
   'SPX 500': 500n,
   'SPX500_USD': 500n,
   'BTC/USD': 10n,

@@ -51,7 +51,7 @@ export const REQUIRED_COLUMNS: Record<string, string> = {
   'autotrader_state.id':                   'text PRIMARY KEY',
   'autotrader_state.mode':                 'user-defined enum',
   'autotrader_state.selected_instruments': 'text[]',
-  'autotrader_state.lot_units':            'integer',
+  'autotrader_state.lot_units':            'numeric',
   'autotrader_state.risk_profile':         'jsonb',
   'autotrader_state.updated_at':           'timestamptz',
   'autotrader_state.updated_by':           'text',
