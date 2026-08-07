@@ -155,7 +155,8 @@ export function calculatePositionSize(
   }
 
   // Calculate actual risk amount for the calculated units
-  const rawRisk = (BigInt(priceDelta) * BigInt(calculatedUnits)) as ScaledInteger;
+  const unitsNum = Number(calculatedUnits);
+  const rawRisk = BigInt(Math.ceil(Number(priceDelta) * unitsNum)) as ScaledInteger;
   const riskInQuoteCurrencyScale = normalizeScale(rawRisk, intent.entryPrice.scale, 2, 'ceil');
   const riskAmountInAccountCurrency = quoteCurrency !== accountCurrency
     ? (BigInt(Math.ceil(Number(riskInQuoteCurrencyScale) * rate)) as ScaledInteger)

@@ -146,7 +146,8 @@ export class RiskGate {
       ? intent.entryPrice.price - intent.stopLossPrice.price
       : intent.stopLossPrice.price - intent.entryPrice.price;
 
-    const rawRisk = (priceDelta * intent.units) as ScaledInteger;
+    const unitsNum = Number(intent.units);
+    const rawRisk = BigInt(Math.ceil(Number(priceDelta) * unitsNum)) as ScaledInteger;
     // Normalize raw risk (at price.scale) to quote currency scale (scale 2, cents) using ceiling rounding
     const riskInQuoteCurrencyScale = normalizeScale(rawRisk, intent.entryPrice.scale, 2, 'ceil');
 
