@@ -78,7 +78,7 @@ const SESSION_PRESETS = [
   { label: 'End of Day',    description: '23:59 UTC',  utcHour: 23, utcMin: 59 },
 ];
 
-const LOT_PRESETS = [10, 100, 500, 1000, 5000];
+const LOT_PRESETS = [0.01, 0.05, 0.10, 0.50, 1.00, 2.00, 5.00];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -189,7 +189,7 @@ function TradePageInner() {
   const [customStopTime, setCustomStopTime] = useState('');
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [savingRisk, setSavingRisk]        = useState(false);
-  const [customLotUnits, setCustomLotUnits] = useState('100');
+  const [customLotUnits, setCustomLotUnits] = useState('0.01');
 
   // Risk Management Settings
   const [riskProfile, setRiskProfile] = useState<{
@@ -1508,14 +1508,58 @@ function TradePageInner() {
               </div>
             </div>
 
-            {/* Lot Size / Units Selection */}
+            {/* 1. Max Concurrent Orders / Positions Control */}
+            <div style={{ padding: '12px', backgroundColor: autotrader.enabled ? '#1E293B' : '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '10px', fontWeight: 800, color: '#92400E', letterSpacing: '0.8px' }}>
+                    ⚡ MAX CONCURRENT ORDERS PERMITTED AT ONCE
+                  </div>
+                  <div style={{ fontSize: '9px', color: autotrader.enabled ? '#94A3B8' : '#78350F', marginTop: '2px' }}>
+                    Cap the maximum number of active positions allowed simultaneously on OANDA (hard ceiling: 20).
+                  </div>
+                </div>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#D97706', ...mono }}>
+                  CURRENT LIMIT: {autotrader?.riskProfileOverrides?.maxConcurrentPositions ?? 5} POSITIONS
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {[1, 2, 3, 5, 10, 20].map(val => {
+                  const isSelected = (autotrader?.riskProfileOverrides?.maxConcurrentPositions ?? 5) === val;
+                  return (
+                    <button
+                      key={val}
+                      onClick={() => {
+                        const reason = prompt(`Reason for changing Max Concurrent Positions to ${val}:`, riskFieldReason.trim() || 'Adjust max concurrent positions via Config & Lot Sizing panel');
+                        if (!reason) return;
+                        setRiskFieldReason(reason);
+                        handleSaveAuditedRiskProfile('maxConcurrentPositions', val);
+                      }}
+                      disabled={savingRiskProfileAudit}
+                      style={{
+                        padding: '5px 12px',
+                        backgroundColor: isSelected ? '#D97706' : (autotrader.enabled ? '#0F172A' : '#FFFFFF'),
+                        color: isSelected ? '#FFFFFF' : (autotrader.enabled ? '#F1F5F9' : '#334155'),
+                        border: `1px solid ${isSelected ? '#D97706' : (autotrader.enabled ? '#334155' : '#CBD5E1')}`,
+                        fontSize: '10px', fontWeight: 700, cursor: 'pointer', ...mono,
+                        borderRadius: '3px',
+                      }}
+                    >
+                      {val} {val === 1 ? 'Position' : 'Positions'} {isSelected ? '✓' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 2. Lot Size Selection (OANDA UI Aligned) */}
             <div>
               <div style={{ fontSize: '10px', fontWeight: 800, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '8px' }}>
-                CONFIGURED LOT SIZE / UNITS PER TRADE:
+                CONFIGURED TRADE LOT SIZE (OANDA UI ALIGNED):
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                 {LOT_PRESETS.map(u => {
-                  const isSelected = (autotrader.lotUnits || 100) === u;
+                  const isSelected = Number(autotrader.lotUnits) === u;
                   return (
                     <button
                       key={u}
@@ -1528,27 +1572,29 @@ function TradePageInner() {
                         fontSize: '10px', fontWeight: 700, cursor: 'pointer', ...mono,
                       }}
                     >
-                      {u.toLocaleString()} units {u === 100 ? '(0.001 Lot - Recommended)' : u === 1000 ? '(0.01 Lot)' : ''}
+                      {u.toFixed(2)} Lot {u === 0.01 ? '(Micro)' : u === 0.10 ? '(Mini)' : u === 1.00 ? '(Standard)' : ''}
                     </button>
                   );
                 })}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px' }}>
-                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Custom:</span>
+                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Custom Lot:</span>
                   <input
                     type="number"
+                    step="0.01"
+                    min="0.01"
                     value={customLotUnits}
                     onChange={e => setCustomLotUnits(e.target.value)}
                     onBlur={() => {
-                      const num = parseInt(customLotUnits, 10);
-                      if (num > 0) handleSetLotUnits(num);
+                      const num = parseFloat(customLotUnits);
+                      if (!isNaN(num) && num > 0) handleSetLotUnits(num);
                     }}
-                    style={{ width: '80px', padding: '5px 8px', border: '1px solid #D1D5DB', ...mono, fontSize: '10px', color: '#14181B' }}
+                    style={{ width: '70px', padding: '5px 8px', border: '1px solid #D1D5DB', ...mono, fontSize: '10px', color: '#14181B' }}
                   />
-                  <span style={{ fontSize: '9px', color: '#6B7280' }}>units</span>
+                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Lot(s)</span>
                 </div>
               </div>
               <div style={{ fontSize: '9px', color: autotrader.enabled ? '#64748B' : '#6B7280', marginTop: '6px' }}>
-                💡 <strong>Safety note:</strong> 100 units on Forex = 0.001 lot (~$0.01/pip). Prevents oversized trades on OANDA practice account. Gold (XAU/USD) is automatically scaled (1 unit = 1 oz).
+                💡 <strong>OANDA UI Sizing:</strong> 0.01 Lot = 1 oz Gold / 1,000 FX units. 1.00 Lot = 100 oz Gold / 100,000 FX units. Automatically matches OANDA order ticket entry.
               </div>
             </div>
           </div>

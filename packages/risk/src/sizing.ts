@@ -35,6 +35,28 @@ export const OANDA_MAX_UNITS: Record<string, bigint> = {
 };
 const DEFAULT_MAX_UNITS = 10_000_000n; // 100 standard lots for Forex pairs
 
+export function getUnitsPerLot(instrumentSymbol: string): number {
+  const s = (instrumentSymbol || '').toUpperCase();
+  if (s.includes('XAU')) return 100;
+  if (s.includes('XAG')) return 5000;
+  if (s.includes('XPT') || s.includes('XPD')) return 100;
+  if (
+    s.includes('SPX') ||
+    s.includes('NAS') ||
+    s.includes('US30') ||
+    s.includes('UK100') ||
+    s.includes('DE30') ||
+    s.includes('JP225') ||
+    s.includes('EU50') ||
+    s.includes('AU200') ||
+    s.includes('HK33')
+  ) {
+    return 1;
+  }
+  if (s.includes('BTC') || s.includes('ETH') || s.includes('SOL') || s.includes('LTC')) return 1;
+  return 100000;
+}
+
 export function calculatePositionSize(
   intent: Pick<OrderIntent, 'instrument' | 'entryPrice' | 'stopLossPrice'>,
   profile: RiskProfile,
@@ -81,9 +103,6 @@ export function calculatePositionSize(
   }
 
   // Convert max risk allowed to quote currency (scale 2 -> scale entryPrice.scale)
-  // riskInQuote = maxRiskAllowed / rate
-  // units = riskInQuote (in price scale) / priceDelta
-  // Equivalent: units = floor( (maxRiskAllowedInAccount * 10^(price.scale - 2)) / (priceDelta * rate) )
   const scaleDiff = intent.entryPrice.scale - 2;
 
   let adjustedRiskBudget: bigint;
@@ -115,9 +134,18 @@ export function calculatePositionSize(
 
   // Cap at lotUnits override if provided (config.lotUnits as upper ceiling)
   if (maxLotUnitsOverride !== undefined && maxLotUnitsOverride > 0) {
-    const lotUnitsBig = BigInt(maxLotUnitsOverride) as ScaledInteger;
-    if (calculatedUnits > lotUnitsBig) {
-      calculatedUnits = lotUnitsBig;
+    let maxAllowedUnits: bigint;
+    if (maxLotUnitsOverride <= 20) {
+      // Input is expressed as Lot Size (e.g. 0.01, 0.1, 0.5, 1.0, 2.0, 5.0)
+      const multiplier = getUnitsPerLot(intent.instrument);
+      const unitsNum = Math.max(1, Math.floor(maxLotUnitsOverride * multiplier));
+      maxAllowedUnits = BigInt(unitsNum);
+    } else {
+      // Input is expressed as raw unit count (e.g. 100 for 1 lot gold, 1000 for 0.01 lot FX)
+      maxAllowedUnits = BigInt(Math.floor(maxLotUnitsOverride));
+    }
+    if (calculatedUnits > maxAllowedUnits) {
+      calculatedUnits = maxAllowedUnits as ScaledInteger;
     }
   }
 
