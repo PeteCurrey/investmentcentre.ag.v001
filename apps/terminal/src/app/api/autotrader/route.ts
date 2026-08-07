@@ -111,7 +111,11 @@ export async function POST(request: Request) {
 
   // Handle config-only update (no mode change).
   if (body.selectedInstruments !== undefined) {
-    if (body.selectedInstruments.length > MAX_SELECTED_INSTRUMENTS) {
+    // Only block when ADDING instruments above the cap — always allow reductions
+    const currentConfig = await readAutotraderConfig();
+    const currentCount = currentConfig?.selectedInstruments?.length ?? 0;
+    const isIncreasing = body.selectedInstruments.length > currentCount;
+    if (isIncreasing && body.selectedInstruments.length > MAX_SELECTED_INSTRUMENTS) {
       return NextResponse.json(
         {
           success: false,
