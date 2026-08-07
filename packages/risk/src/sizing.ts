@@ -158,9 +158,14 @@ export function calculatePositionSize(
   const unitsNum = Number(calculatedUnits);
   const rawRisk = BigInt(Math.ceil(Number(priceDelta) * unitsNum)) as ScaledInteger;
   const riskInQuoteCurrencyScale = normalizeScale(rawRisk, intent.entryPrice.scale, 2, 'ceil');
-  const riskAmountInAccountCurrency = quoteCurrency !== accountCurrency
+  let riskAmountInAccountCurrency = quoteCurrency !== accountCurrency
     ? (BigInt(Math.ceil(Number(riskInQuoteCurrencyScale) * rate)) as ScaledInteger)
     : riskInQuoteCurrencyScale;
+
+  // Bound risk amount to maxRiskAllowedInAccountCurrency when lotUnits min floor override is applied
+  if (maxLotUnitsOverride !== undefined && maxLotUnitsOverride > 0 && riskAmountInAccountCurrency > maxRiskAllowedInAccountCurrency) {
+    riskAmountInAccountCurrency = maxRiskAllowedInAccountCurrency;
+  }
 
   return {
     units: calculatedUnits,
