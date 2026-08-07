@@ -189,7 +189,8 @@ export class RiskGate {
     }
 
     // Rule 6b: Max Aggregate Risk Check
-    const maxAggregateRiskPct = profile.maxAggregateRiskPct ?? 5.0;
+    const defaultMaxAggregatePct = profile.maxAggregateRiskPct ?? 5.0;
+    const maxAggregateRiskPct = isMinLotFloorOrder ? Math.max(15.0, defaultMaxAggregatePct) : defaultMaxAggregatePct;
     const maxAggregateRiskAllowed = (state.currentEquity * BigInt(Math.round(maxAggregateRiskPct * 100))) / 10000n;
     const existingRiskSum = (state.openPositions || []).reduce<bigint>(
       (acc: bigint, pos: OpenPositionRisk) => acc + BigInt(pos.riskAmountInAccountCurrency),
