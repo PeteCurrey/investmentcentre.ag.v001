@@ -514,7 +514,6 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       const dp = inst?.digits ?? getDecimalPlaces(displaySymbol);
       const pipVal = getPipValue(displaySymbol);
       const tpOffset = direction === 'BUY' ? (config.riskProfile.tpPips * pipVal) : -(config.riskProfile.tpPips * pipVal);
-      const trailingDistance = config.riskProfile.trailingDistancePips * pipVal;
 
       const rp = {
         slPips: protectionPips,
@@ -529,7 +528,13 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
       const entryStr = spotPrice.toFixed(dp);
       const slStr = (spotPrice + slOffset).toFixed(dp);
       const tpStr = (spotPrice + tpOffset).toFixed(dp);
-      const trailingStr = trailingDistance.toFixed(dp);
+      // Trailing stop distance MUST equal the SL offset distance.
+      // Using trailingDistancePips independently caused a BrokerAdapter Contract Mismatch
+      // because the HMAC-signed intent's stopLossPrice and trailingStopDistance must agree
+      // within 1 pip (oanda.ts Security Guard 4). The trailing stop now adapts to the
+      // ATR-derived protection distance, so every volatile instrument (XAU, indices)
+      // gets a trailing stop that matches its actual risk perimeter.
+      const trailingStr = Math.abs(slOffset).toFixed(dp);
 
       const parts = displaySymbol.split('/');
       const quoteCurrency = parts.length === 2 ? parts[1] : 'USD';

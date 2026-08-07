@@ -64,17 +64,19 @@ export const REQUIRED_COLUMNS: Record<string, string> = {
   'cycle_log.cycle_id':                    'text',
   'cycle_log.action':                      'text',
   'cycle_log.created_at':                  'timestamptz',
-  // gate_decisions — initial schema
-  'gate_decisions.cycle_id':               'text',
+  // gate_decisions — initial schema (20260805000001)
+  // Note: gate_decisions has NO cycle_id — rows are keyed by order_intent_id + evaluated_at
   'gate_decisions.instrument':             'text',
+  'gate_decisions.evaluated_at':           'timestamptz',
   // risk_profile_changes — 20260806000006_risk_profile_changes.sql
+  // Note: timestamp column is named changed_at, not created_at
   'risk_profile_changes.id':               'bigint PRIMARY KEY',
   'risk_profile_changes.field_name':       'text NOT NULL',
   'risk_profile_changes.old_value':        'jsonb',
   'risk_profile_changes.new_value':        'jsonb NOT NULL',
   'risk_profile_changes.actor':            'text NOT NULL',
   'risk_profile_changes.reason':           'text NOT NULL',
-  'risk_profile_changes.created_at':       'timestamptz',
+  'risk_profile_changes.changed_at':       'timestamptz',
 };
 
 export interface SchemaAssertionResult {
