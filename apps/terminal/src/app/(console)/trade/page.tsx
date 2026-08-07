@@ -247,9 +247,13 @@ function TradePageInner() {
   const [bulkProgress, setBulkProgress]             = useState<{ current: number; total: number } | null>(null);
   const [bulkResult, setBulkResult]                 = useState<string | null>(null);
 
-  // Chart Modal State
+  // Chart Modal State (legacy — kept for any remaining references)
   const [chartModalInstrument, setChartModalInstrument] = useState<{ symbol: string; tvSymbol: string } | null>(null);
   const [chartModalTimeframe, setChartModalTimeframe]   = useState<string>('60');
+
+  // Chart inline override — when user clicks 📈 CHART on a position row the main chart switches symbol
+  const [chartOverrideSymbol, setChartOverrideSymbol]   = useState<string | null>(null);
+  const chartSectionRef = useRef<HTMLDivElement>(null);
 
   // Chart theme (persisted)
   const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
@@ -1753,14 +1757,14 @@ function TradePageInner() {
             ['OANDA ID', inst.oandaId, '#1C3A5E'],
           ].map(([label, val, col]) => (
             <span key={label as string}>
-              <span style={{ color: '#6B7280' }}>{label} </span>
+<span style={{ color: '#6B7280' }}>{label} </span>
               <span style={{ fontWeight: 700, color: col as string }}>{val}</span>
             </span>
           ))}
         </div>
         <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
           <span style={{ color: '#6B7280', marginRight: '4px', fontSize: '9px' }}>TF:</span>
-          <button onClick={() => setChartModalInstrument({ symbol: inst.symbol, tvSymbol: inst.tvSymbol })} style={{
+          <button onClick={() => { setChartOverrideSymbol(null); chartSectionRef.current?.scrollIntoView({ behavior: 'smooth' }); }} style={{
             padding: '2px 9px', backgroundColor: '#1C3A5E', color: '#C8F135', border: '1px solid #1C3A5E', fontSize: '9px', fontWeight: 700, cursor: 'pointer', ...mono, marginRight: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px'
           }}>
             📈 OPEN CHART
@@ -1791,13 +1795,24 @@ function TradePageInner() {
       </div>
 
       {/* ── Chart + Manual Order Panel ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 330px', gap: '14px', alignItems: 'start' }}>
-        <div style={{ border: `1px solid ${chartTheme === 'light' ? '#E2E8F0' : '#1E293B'}`, backgroundColor: chartTheme === 'light' ? '#FFFFFF' : '#0A0D12', display: 'flex', flexDirection: 'column' }}>
+      <div ref={chartSectionRef} style={{ display: 'grid', gridTemplateColumns: '1fr 330px', gap: '14px', alignItems: 'start' }}>
+        <div style={{ border: `1px solid ${chartTheme === 'light' ? '#E2E8F0' : (chartOverrideSymbol ? '#C8F135' : '#1E293B')}`, backgroundColor: chartTheme === 'light' ? '#FFFFFF' : '#0A0D12', display: 'flex', flexDirection: 'column' }}>
           <div style={{ backgroundColor: chartTheme === 'light' ? '#F8FAFC' : '#0F172A', color: chartTheme === 'light' ? '#0F172A' : '#F8FAFC', padding: '8px 14px', fontSize: '10px', borderBottom: `1px solid ${chartTheme === 'light' ? '#E2E8F0' : '#1E293B'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: chartTheme === 'light' ? '#64748B' : '#94A3B8' }}>TRADINGVIEW // <span style={{ fontWeight: 700, color: chartTheme === 'light' ? '#0F172A' : '#E2E8F0' }}>{inst.tvSymbol}</span></span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ color: chartTheme === 'light' ? '#64748B' : '#94A3B8' }}>TRADINGVIEW // <span style={{ fontWeight: 700, color: chartTheme === 'light' ? '#0F172A' : '#E2E8F0' }}>{chartOverrideSymbol ?? inst.tvSymbol}</span></span>
+              {chartOverrideSymbol && (
+                <button
+                  onClick={() => setChartOverrideSymbol(null)}
+                  title="Reset to selected instrument"
+                  style={{ padding: '2px 8px', backgroundColor: '#C8F135', color: '#0F172A', border: 'none', fontSize: '9px', fontWeight: 800, cursor: 'pointer', fontFamily: '"DM Mono", monospace' }}
+                >
+                  ✕ RESET
+                </button>
+              )}
+            </div>
             <span style={{ fontSize: '9px', color: chartTheme === 'light' ? '#1C3A5E' : '#C8F135', fontWeight: 600 }}>RSI · MACD · BB · EMA · VWAP</span>
           </div>
-          <TradingViewChart symbol={inst.tvSymbol} interval={timeframe} theme={chartTheme} height={540} showSidebar />
+          <TradingViewChart symbol={chartOverrideSymbol ?? inst.tvSymbol} interval={timeframe} theme={chartTheme} height={540} showSidebar />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -2115,7 +2130,10 @@ function TradePageInner() {
                           <td style={{ padding: '9px 12px', fontWeight: 800, color: '#1C3A5E', fontSize: '11px' }}>{p.instrument}</td>
                           <td style={{ padding: '9px 12px' }}>
                             <button
-                              onClick={() => setChartModalInstrument({ symbol: p.instrument, tvSymbol: getTvSymbol(p.instrument) })}
+                              onClick={() => {
+                                setChartOverrideSymbol(getTvSymbol(p.instrument));
+                                chartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }}
                               style={{ padding: '2px 6px', backgroundColor: '#1C3A5E', color: '#C8F135', border: 'none', fontSize: '9px', fontWeight: 700, cursor: 'pointer', ...mono }}
                             >
                               📈 CHART
