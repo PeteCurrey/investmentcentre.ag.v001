@@ -132,20 +132,24 @@ export function calculatePositionSize(
     calculatedUnits = oandaMax;
   }
 
-  // Cap at lotUnits override if provided (config.lotUnits as upper ceiling)
+  // Configured Lot Size: Enforces the configured lot size as the MINIMUM FLOOR per trade
+  // (e.g. 0.10 Lot = 10 units for Gold). Trades can be larger if 1% risk budget permits,
+  // but will never fall below the configured minimum lot size.
   if (maxLotUnitsOverride !== undefined && maxLotUnitsOverride > 0) {
-    let maxAllowedUnits: bigint;
+    let minFloorUnits: bigint;
     if (maxLotUnitsOverride <= 20) {
       // Input is expressed as Lot Size (e.g. 0.01, 0.1, 0.5, 1.0, 2.0, 5.0)
       const multiplier = getUnitsPerLot(intent.instrument);
       const unitsNum = Math.max(1, Math.floor(maxLotUnitsOverride * multiplier));
-      maxAllowedUnits = BigInt(unitsNum);
+      minFloorUnits = BigInt(unitsNum);
     } else {
-      // Input is expressed as raw unit count (e.g. 100 for 1 lot gold, 1000 for 0.01 lot FX)
-      maxAllowedUnits = BigInt(Math.floor(maxLotUnitsOverride));
+      // Input is expressed as raw unit count (e.g. 10 for 0.1 lot gold, 1000 for 0.01 lot FX)
+      minFloorUnits = BigInt(Math.floor(maxLotUnitsOverride));
     }
-    if (calculatedUnits > maxAllowedUnits) {
-      calculatedUnits = maxAllowedUnits as ScaledInteger;
+
+    // Ensure calculated units meets or exceeds the configured minimum lot size floor
+    if (calculatedUnits < minFloorUnits) {
+      calculatedUnits = minFloorUnits as ScaledInteger;
     }
   }
 

@@ -1552,10 +1552,10 @@ function TradePageInner() {
               </div>
             </div>
 
-            {/* 2. Lot Size Selection (OANDA UI Aligned) */}
+            {/* 2. Lot Size Selection (OANDA UI Aligned Minimum Floor) */}
             <div>
               <div style={{ fontSize: '10px', fontWeight: 800, color: autotrader.enabled ? '#94A3B8' : '#1C3A5E', letterSpacing: '1px', marginBottom: '8px' }}>
-                CONFIGURED TRADE LOT SIZE (OANDA UI ALIGNED):
+                CONFIGURED MINIMUM TRADE LOT SIZE (OANDA ALIGNED FLOOR):
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                 {LOT_PRESETS.map(u => {
@@ -1572,12 +1572,12 @@ function TradePageInner() {
                         fontSize: '10px', fontWeight: 700, cursor: 'pointer', ...mono,
                       }}
                     >
-                      {u.toFixed(2)} Lot {u === 0.01 ? '(Micro)' : u === 0.10 ? '(Mini)' : u === 1.00 ? '(Standard)' : ''}
+                      {u.toFixed(2)} Min Lot {u === 0.01 ? '(Micro)' : u === 0.10 ? '(Mini)' : u === 1.00 ? '(Standard)' : ''}
                     </button>
                   );
                 })}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px' }}>
-                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Custom Lot:</span>
+                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Min Lot:</span>
                   <input
                     type="number"
                     step="0.01"
@@ -1590,11 +1590,11 @@ function TradePageInner() {
                     }}
                     style={{ width: '70px', padding: '5px 8px', border: '1px solid #D1D5DB', ...mono, fontSize: '10px', color: '#14181B' }}
                   />
-                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Lot(s)</span>
+                  <span style={{ fontSize: '9px', color: '#6B7280' }}>Lot(s) Min</span>
                 </div>
               </div>
               <div style={{ fontSize: '9px', color: autotrader.enabled ? '#64748B' : '#6B7280', marginTop: '6px' }}>
-                💡 <strong>OANDA UI Sizing:</strong> 0.01 Lot = 1 oz Gold / 1,000 FX units. 1.00 Lot = 100 oz Gold / 100,000 FX units. Automatically matches OANDA order ticket entry.
+                💡 <strong>Minimum Floor:</strong> Sets the minimum order size (e.g., 0.10 Lot = 10 units Gold). Trades can be larger if 1% account risk permits, but will never fall below this minimum.
               </div>
             </div>
           </div>
