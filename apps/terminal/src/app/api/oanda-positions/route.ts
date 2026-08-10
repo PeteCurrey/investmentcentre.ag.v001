@@ -34,6 +34,7 @@ interface OandaTrade {
   averageClosePrice?: string;
   state?: string;
   stopLossOrderID?: string;
+  trailingStopLossOrderID?: string;
   takeProfitOrderID?: string;
 }
 
@@ -143,6 +144,7 @@ export async function GET() {
         tradeId: t.id,
         financing: parseFloat(t.financing ?? '0').toFixed(4),
         stopLossOrderID: t.stopLossOrderID ?? null,
+        trailingStopLossOrderID: t.trailingStopLossOrderID ?? null,
         takeProfitOrderID: t.takeProfitOrderID ?? null,
       };
     });

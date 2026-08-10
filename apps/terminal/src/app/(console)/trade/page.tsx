@@ -24,7 +24,7 @@ interface Position {
   id: string; instrument: string; direction: string; units: string;
   entryPrice: string; unrealizedPL: string; pnlSign: string;
   pnlPositive: boolean; openedAt: string; tradeId: string; financing: string;
-  stopLossOrderID?: string; takeProfitOrderID?: string;
+  stopLossOrderID?: string; trailingStopLossOrderID?: string; takeProfitOrderID?: string;
 }
 interface AccountSummary {
   balance: string; nav: string; unrealizedPL: string;
@@ -2194,7 +2194,15 @@ function TradePageInner() {
                                   <div style={{ color: '#1D4ED8', fontWeight: 700, marginBottom: '4px' }}>RISK LEVELS</div>
                                   <div style={{ color: '#374151', lineHeight: 1.8 }}>
                                     <div><span style={{ color: '#6B7280' }}>Entry: </span><span style={{ fontWeight: 700 }}>{p.entryPrice}</span></div>
-                                    <div><span style={{ color: '#EF4444' }}>Stop Loss: </span>{p.stopLossOrderID ? 'Active' : 'Not set'}</div>
+                                    <div>
+                                      <span style={{ color: '#EF4444' }}>Stop Loss: </span>
+                                      {p.stopLossOrderID
+                                        ? <span style={{ color: '#EF4444', fontWeight: 700 }}>Fixed SL Active</span>
+                                        : p.trailingStopLossOrderID
+                                        ? <span style={{ color: '#F59E0B', fontWeight: 700 }}>🔄 Trailing Stop Active</span>
+                                        : <span style={{ color: '#94A3B8' }}>Not set</span>
+                                      }
+                                    </div>
                                     <div><span style={{ color: '#16A34A' }}>Take Profit: </span>{p.takeProfitOrderID ? 'Active' : 'Not set'}</div>
                                   </div>
                                 </div>
