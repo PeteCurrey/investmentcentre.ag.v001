@@ -20,6 +20,15 @@ const getDecimalPlaces = (instrument: string): number => {
 const formatSymbol = (s: string): string => s.replace('_', '/');
 
 // ─── Types for OANDA API responses ───────────────────────────────────────────
+interface OandaOrderRef {
+  id?: string;
+  price?: string;      // for fixed SL / TP
+  distance?: string;   // for trailing stop
+  trailingStopValue?: string; // current trailing stop price
+  type?: string;
+  state?: string;
+}
+
 interface OandaTrade {
   id: string;
   instrument: string;
@@ -33,6 +42,11 @@ interface OandaTrade {
   closeTime?: string;
   averageClosePrice?: string;
   state?: string;
+  // OANDA returns nested order objects on /openTrades, not flat ID strings
+  stopLossOrder?: OandaOrderRef;
+  trailingStopLossOrder?: OandaOrderRef;
+  takeProfitOrder?: OandaOrderRef;
+  // Flat ID strings are returned on /trades history endpoint
   stopLossOrderID?: string;
   trailingStopLossOrderID?: string;
   takeProfitOrderID?: string;
@@ -129,6 +143,19 @@ export async function GET() {
       const dp = getDecimalPlaces(t.instrument);
       const rawUnits = parseFloat(t.currentUnits ?? '0');
       const pnl = parseFloat(t.unrealizedPL ?? '0');
+
+      // OANDA /openTrades returns nested objects; /trades returns flat IDs.
+      // Support both formats.
+      const slOrderId   = t.stopLossOrder?.id          ?? t.stopLossOrderID          ?? null;
+      const tslOrderId  = t.trailingStopLossOrder?.id  ?? t.trailingStopLossOrderID  ?? null;
+      const tpOrderId   = t.takeProfitOrder?.id        ?? t.takeProfitOrderID        ?? null;
+
+      // Extract prices/distances for display in the UI
+      const slPrice     = t.stopLossOrder?.price        ?? null;
+      const tslDistance = t.trailingStopLossOrder?.distance        ?? null;
+      const tslValue    = t.trailingStopLossOrder?.trailingStopValue ?? null;
+      const tpPrice     = t.takeProfitOrder?.price      ?? null;
+
       return {
         id: t.id,
         instrument: formatSymbol(t.instrument),
@@ -143,9 +170,13 @@ export async function GET() {
           : '—',
         tradeId: t.id,
         financing: parseFloat(t.financing ?? '0').toFixed(4),
-        stopLossOrderID: t.stopLossOrderID ?? null,
-        trailingStopLossOrderID: t.trailingStopLossOrderID ?? null,
-        takeProfitOrderID: t.takeProfitOrderID ?? null,
+        stopLossOrderID:          slOrderId,
+        trailingStopLossOrderID:  tslOrderId,
+        takeProfitOrderID:        tpOrderId,
+        stopLossPrice:            slPrice,
+        trailingStopDistance:     tslDistance,
+        trailingStopValue:        tslValue,
+        takeProfitPrice:          tpPrice,
       };
     });
 

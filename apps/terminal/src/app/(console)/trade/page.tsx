@@ -25,6 +25,10 @@ interface Position {
   entryPrice: string; unrealizedPL: string; pnlSign: string;
   pnlPositive: boolean; openedAt: string; tradeId: string; financing: string;
   stopLossOrderID?: string; trailingStopLossOrderID?: string; takeProfitOrderID?: string;
+  stopLossPrice?: string | null;
+  trailingStopDistance?: string | null;
+  trailingStopValue?: string | null;
+  takeProfitPrice?: string | null;
 }
 interface AccountSummary {
   balance: string; nav: string; unrealizedPL: string;
@@ -2199,11 +2203,20 @@ function TradePageInner() {
                                       {p.stopLossOrderID
                                         ? <span style={{ color: '#EF4444', fontWeight: 700 }}>Fixed SL Active</span>
                                         : p.trailingStopLossOrderID
-                                        ? <span style={{ color: '#F59E0B', fontWeight: 700 }}>🔄 Trailing Stop Active</span>
+                                        ? <span style={{ color: '#F59E0B', fontWeight: 700 }}>
+                                            🔄 Trailing {p.trailingStopDistance ? `(dist: ${p.trailingStopDistance})` : ''}
+                                            {p.trailingStopValue ? <span style={{ color: '#92400E' }}> · stop @ {p.trailingStopValue}</span> : ''}
+                                          </span>
                                         : <span style={{ color: '#94A3B8' }}>Not set</span>
                                       }
                                     </div>
-                                    <div><span style={{ color: '#16A34A' }}>Take Profit: </span>{p.takeProfitOrderID ? 'Active' : 'Not set'}</div>
+                                    <div>
+                                      <span style={{ color: '#16A34A' }}>Take Profit: </span>
+                                      {p.takeProfitOrderID
+                                        ? <span style={{ color: '#16A34A', fontWeight: 700 }}>@ {p.takeProfitPrice ?? 'Active'}</span>
+                                        : <span style={{ color: '#94A3B8' }}>Not set</span>
+                                      }
+                                    </div>
                                   </div>
                                 </div>
                                 <div>
