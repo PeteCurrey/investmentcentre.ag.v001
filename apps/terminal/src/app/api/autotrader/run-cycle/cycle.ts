@@ -11,6 +11,7 @@
  * blocking internal HTTP round trips.
  */
 
+import crypto from 'crypto';
 import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey, getOandaAccountId, cleanCredential } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize, checkNewsBlackoutStatus, assertCalendarConfig } from '@meridian/risk';
 import { generateSignal } from '@meridian/signals';
@@ -65,8 +66,7 @@ function getMaxStopDistancePct(inst: ReturnType<typeof getInstrument>): number {
 // ─── Cycle Entry Point ────────────────────────────────────────────────────────
 
 export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
-  const minuteBucket = Math.floor(Date.now() / 60_000);
-  const cycleId = providedCycleId ?? `cycle-${minuteBucket}`;
+  const cycleId = providedCycleId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-0000-0000-000000000000');
 
   // ── 0. Assert environment configuration — fail fast at startup ────────────
   // Must run BEFORE the lock is acquired so a bad config produces a single
