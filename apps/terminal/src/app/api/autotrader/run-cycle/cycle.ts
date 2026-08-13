@@ -11,7 +11,6 @@
  * blocking internal HTTP round trips.
  */
 
-import crypto from 'crypto';
 import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey, getOandaAccountId, cleanCredential } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize, checkNewsBlackoutStatus, assertCalendarConfig } from '@meridian/risk';
 import { generateSignal } from '@meridian/signals';
