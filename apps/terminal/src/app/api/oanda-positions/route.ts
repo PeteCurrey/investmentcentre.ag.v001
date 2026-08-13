@@ -60,6 +60,7 @@ interface OandaAccountSummary {
     pl?: string;
     openTradeCount?: number;
     currency?: string;
+    lastTransactionID?: string;
   };
 }
 
