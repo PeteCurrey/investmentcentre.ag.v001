@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../lib/auth';
 import { insertCycleLog, getMode } from '@meridian/core';
-import { getOandaApiKey } from '@meridian/execute';
+import { getOandaApiKey, getOandaAccountId, cleanCredential } from '@meridian/execute';
 import crypto from 'crypto';
 
 export async function POST(request: Request) {
@@ -25,8 +25,8 @@ export async function POST(request: Request) {
   }
 
   const token = getOandaApiKey();
-  const accountId = process.env.OANDA_ACCOUNT_ID;
-  const env = process.env.OANDA_ENVIRONMENT || 'practice';
+  const accountId = getOandaAccountId();
+  const env = cleanCredential(process.env.OANDA_ENVIRONMENT || process.env.NEXT_PUBLIC_OANDA_ENVIRONMENT) || 'practice';
   const baseUrl =
     env === 'live'
       ? 'https://api-fxtrade.oanda.com/v3'

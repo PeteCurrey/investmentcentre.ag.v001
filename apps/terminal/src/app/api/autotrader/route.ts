@@ -8,7 +8,7 @@ import {
   requestTransition,
   AutotraderMode,
 } from '@meridian/core';
-import { OandaBrokerAdapter, getOandaApiKey } from '@meridian/execute';
+import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey, getOandaAccountId, cleanCredential } from '@meridian/execute';
 import { requireSession } from '../../../lib/auth';
 import { getInstrument } from '../../../lib/instruments';
 
@@ -144,8 +144,8 @@ export async function POST(request: Request) {
 
     // Rule 1: Validate against broker's account instruments if credentials exist
     const apiKey = getOandaApiKey();
-    const accountId = process.env.OANDA_ACCOUNT_ID;
-    const env = (process.env.OANDA_ENVIRONMENT as 'practice' | 'live') || 'practice';
+    const accountId = getOandaAccountId();
+    const env = (cleanCredential(process.env.OANDA_ENVIRONMENT) as 'practice' | 'live') || 'practice';
 
     if (apiKey && accountId) {
       const adapter = new OandaBrokerAdapter({ apiKey, accountId, environment: env });

@@ -98,8 +98,19 @@ export function parsePriceStringToBigInt(priceStr: string, targetScale?: number)
   };
 }
 
+export function cleanCredential(val?: string | null): string {
+  if (!val) return '';
+  return val.trim().replace(/^["']|["']$/g, '');
+}
+
 export function getOandaApiKey(): string {
-  return process.env.OANDA_API_KEY || process.env.OANDA_API_TOKEN || '';
+  const raw = process.env.OANDA_API_KEY || process.env.OANDA_API_TOKEN || '';
+  return cleanCredential(raw);
+}
+
+export function getOandaAccountId(): string {
+  const raw = process.env.OANDA_ACCOUNT_ID || process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID || '';
+  return cleanCredential(raw);
 }
 
 async function formatOandaError(response: Response, prefix: string): Promise<string> {
@@ -129,11 +140,11 @@ export class OandaBrokerAdapter implements BrokerAdapter {
 
   constructor(config?: Partial<OandaConfig>) {
     const envApiKey = getOandaApiKey();
-    const envAccountId = process.env.OANDA_ACCOUNT_ID || '';
+    const envAccountId = getOandaAccountId();
     this.config = {
-      accountId: config?.accountId !== undefined ? config.accountId : envAccountId,
-      apiKey: config?.apiKey !== undefined ? config.apiKey : envApiKey,
-      environment: (config?.environment || process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live'
+      accountId: cleanCredential(config?.accountId !== undefined ? config.accountId : envAccountId),
+      apiKey: cleanCredential(config?.apiKey !== undefined ? config.apiKey : envApiKey),
+      environment: (cleanCredential(config?.environment || process.env.OANDA_ENVIRONMENT) || 'practice') as 'practice' | 'live'
     };
     this.isPaper = this.config.environment === 'practice';
   }

@@ -11,7 +11,7 @@
  * blocking internal HTTP round trips.
  */
 
-import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey } from '@meridian/execute';
+import { OandaBrokerAdapter, parsePriceStringToBigInt, getOandaApiKey, getOandaAccountId, cleanCredential } from '@meridian/execute';
 import { RiskGate, FTMO_STANDARD_PROFILE, OrderIntent, buildAccountRiskState, calculatePositionSize, checkNewsBlackoutStatus, assertCalendarConfig } from '@meridian/risk';
 import { generateSignal } from '@meridian/signals';
 import { createPrice, moneyToString } from '@meridian/core';
@@ -230,8 +230,8 @@ export async function runCycle(providedCycleId?: string): Promise<CycleResult> {
     const canSubmit = mode === 'LIVE' && tier4Enabled;
 
     const apiKey = getOandaApiKey();
-    const accountId = process.env.OANDA_ACCOUNT_ID;
-    const env = (process.env.OANDA_ENVIRONMENT || 'practice') as 'practice' | 'live';
+    const accountId = getOandaAccountId();
+    const env = (cleanCredential(process.env.OANDA_ENVIRONMENT) || 'practice') as 'practice' | 'live';
 
     if (!apiKey || !accountId) {
       await insertCycleLog({
