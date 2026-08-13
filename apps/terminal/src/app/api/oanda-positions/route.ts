@@ -138,6 +138,57 @@ export async function GET() {
     const openTrades: OandaTrade[] = openData.trades ?? [];
     const allTrades: OandaTrade[] = tradesData.trades ?? [];
 
+    // Fetch recent transaction history to capture closed trades not returned by /trades
+    const lastTxId = parseInt(accountData?.account?.lastTransactionID || '0', 10);
+    const txClosedTrades: OandaTrade[] = [];
+    if (lastTxId > 0) {
+      try {
+        const fromTx = Math.max(1, lastTxId - 500);
+        const txRes = await fetch(`${baseUrl}/accounts/${accountId}/transactions/idrange?from=${fromTx}&to=${lastTxId}`, { headers });
+        if (txRes.ok) {
+          const txData = (await txRes.json()) as { transactions?: Array<any> };
+          const txs = txData.transactions || [];
+          for (const tx of txs) {
+            if (tx.type === 'ORDER_FILL') {
+              const closed = tx.tradesClosed || (tx.tradeClosed ? [tx.tradeClosed] : []);
+              for (const c of closed) {
+                if (c.tradeID) {
+                  txClosedTrades.push({
+                    id: c.tradeID,
+                    instrument: tx.instrument,
+                    price: c.price || tx.price,
+                    openTime: tx.time,
+                    initialUnits: c.units,
+                    state: 'CLOSED',
+                    currentUnits: '0',
+                    realizedPL: c.realizedPL,
+                    unrealizedPL: '0',
+                    closeTime: tx.time,
+                    averageClosePrice: c.price || tx.price,
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    const tradeMapById = new Map<string, OandaTrade>();
+    for (const t of allTrades) {
+      tradeMapById.set(t.id, t);
+    }
+    for (const t of txClosedTrades) {
+      const existing = tradeMapById.get(t.id);
+      if (!existing || existing.state !== 'CLOSED') {
+        tradeMapById.set(t.id, {
+          ...(existing || {}),
+          ...t,
+        });
+      }
+    }
+    const combinedTrades = Array.from(tradeMapById.values()).sort((a, b) => parseInt(b.id, 10) - parseInt(a.id, 10));
+
     // ── Live open positions (with P&L) ──────────────────────────────────────
     const positions = openTrades.map((t) => {
       const dp = getDecimalPlaces(t.instrument);
@@ -181,7 +232,7 @@ export async function GET() {
     });
 
     // ── Full trade history with matched cycle_log rationale ─────────────────
-    const execLog = allTrades.map((t) => {
+    const execLog = combinedTrades.map((t) => {
       const dp = getDecimalPlaces(t.instrument);
       const initialUnits = parseFloat(t.initialUnits ?? '0');
       const direction = initialUnits > 0 ? 'BUY' : 'SELL';
