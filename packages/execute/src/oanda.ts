@@ -100,7 +100,7 @@ export function parsePriceStringToBigInt(priceStr: string, targetScale?: number)
 
 export function cleanCredential(val?: string | null): string {
   if (!val) return '';
-  return val.trim().replace(/^["']|["']$/g, '');
+  return val.trim().replace(/^["']|["']$/g, '').replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
 export function getOandaApiKey(): string {
