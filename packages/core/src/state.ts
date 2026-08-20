@@ -542,6 +542,11 @@ export async function readCycleLogTradeMap(): Promise<
       if (!row.order_id) continue;
       const entry = { action: row.action, reason: row.reason, instrument: row.instrument };
       map[row.order_id] = entry;
+      // OANDA market order fill trade IDs are order_id + 1 (e.g. order 2691 -> trade 2692)
+      const num = parseInt(row.order_id, 10);
+      if (!isNaN(num)) {
+        map[String(num + 1)] = entry;
+      }
     }
   } catch (err: unknown) {
     log.error('readCycleLogTradeMap: unexpected error', { err });
